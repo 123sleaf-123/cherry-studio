@@ -1,17 +1,43 @@
-import { useCallback } from 'react'
+import { useMultiplePreferences } from '@data/hooks/usePreference'
+import { preferenceService } from '@data/PreferenceService'
+import { AgentApiClient } from '@renderer/api/agent'
+import { useCallback, useMemo } from 'react'
 import useSWR from 'swr'
 
-import { useApiServer } from '../useApiServer'
-import { requireAgentClient, useAgentClient } from './useAgentClient'
+const AGENT_API_PREFERENCE_KEYS = {
+  host: 'feature.csaas.host',
+  port: 'feature.csaas.port',
+  apiKey: 'feature.csaas.api_key'
+} as const
+
+const useAgentHttpClient = () => {
+  const { host, port, apiKey } = useMultiplePreferences(AGENT_API_PREFERENCE_KEYS)[0]
+
+  return useMemo(() => {
+    const isConfigLoaded = Object.values(AGENT_API_PREFERENCE_KEYS).every((key) => preferenceService.isCached(key))
+
+    if (!isConfigLoaded || !apiKey) {
+      return null
+    }
+
+    return new AgentApiClient({
+      baseURL: `http://${host}:${port}`,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'X-Api-Key': apiKey
+      }
+    })
+  }, [host, port, apiKey])
+}
 
 export const useChannels = (type?: string) => {
-  const client = useAgentClient()
-  const { apiServerRunning } = useApiServer()
+  const client = useAgentHttpClient()
 
-  const key = apiServerRunning && client ? `${client.channelPaths.base}?type=${type ?? ''}` : null
+  const key = client ? `${client.channelPaths.base}?type=${type ?? ''}` : null
 
   const fetcher = useCallback(async () => {
-    const result = await requireAgentClient(client).listChannels(type ? { type } : undefined)
+    if (!client) throw new Error('Agent API client unavailable')
+    const result = await client.listChannels(type ? { type } : undefined)
     return result.data
   }, [client, type])
 
@@ -19,7 +45,8 @@ export const useChannels = (type?: string) => {
 
   const createChannel = useCallback(
     async (channelData: Record<string, unknown>) => {
-      const result = await requireAgentClient(client).createChannel(channelData)
+      if (!client) throw new Error('Agent API client unavailable')
+      const result = await client.createChannel(channelData)
       void mutate((prev) => [...(prev ?? []), result], false)
       return result
     },
@@ -28,7 +55,8 @@ export const useChannels = (type?: string) => {
 
   const updateChannel = useCallback(
     async (id: string, updates: Record<string, unknown>) => {
-      const result = await requireAgentClient(client).updateChannel(id, updates)
+      if (!client) throw new Error('Agent API client unavailable')
+      const result = await client.updateChannel(id, updates)
       void mutate((prev) => prev?.map((ch) => (ch.id === id ? result : ch)) ?? [], false)
       return result
     },
@@ -37,7 +65,8 @@ export const useChannels = (type?: string) => {
 
   const deleteChannel = useCallback(
     async (id: string) => {
-      await requireAgentClient(client).deleteChannel(id)
+      if (!client) throw new Error('Agent API client unavailable')
+      await client.deleteChannel(id)
       void mutate((prev) => prev?.filter((ch) => ch.id !== id) ?? [], false)
     },
     [client, mutate]

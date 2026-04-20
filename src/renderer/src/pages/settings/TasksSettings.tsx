@@ -3,9 +3,16 @@ import ListItem from '@renderer/components/ListItem'
 import Scrollbar from '@renderer/components/Scrollbar'
 import { useTheme } from '@renderer/context/ThemeProvider'
 import { cacheService } from '@renderer/data/CacheService'
-import { useAgentClient } from '@renderer/hooks/agents/useAgentClient'
+import { useAgents } from '@renderer/hooks/agents/useAgents'
 import { useChannels } from '@renderer/hooks/agents/useChannels'
-import { useCreateTask, useDeleteTask, useTaskLogs, useTasks, useUpdateTask } from '@renderer/hooks/agents/useTasks'
+import {
+  useCreateTask,
+  useDeleteTask,
+  useRunTask,
+  useTaskLogs,
+  useTasks,
+  useUpdateTask
+} from '@renderer/hooks/agents/useTasks'
 import type { CreateTaskRequest, ScheduledTaskEntity, TaskRunLogEntity, UpdateTaskRequest } from '@renderer/types'
 import { useNavigate } from '@tanstack/react-router'
 import { Alert, Button, DatePicker, Empty, Input, Modal, Popconfirm, Select, Spin, Table, Tag, Tooltip } from 'antd'
@@ -13,7 +20,6 @@ import dayjs from 'dayjs'
 import { CalendarClock, Clock, ExternalLink, History, Maximize2, Pause, Play, Search, Trash2 } from 'lucide-react'
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { mutate } from 'swr'
 
 import { SettingContainer, SettingDivider, SettingGroup, SettingRow, SettingRowTitle, SettingTitle } from '.'
 
@@ -760,19 +766,28 @@ const CreateForm: FC<{
 
 const TasksSettings: FC = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const { agents: rawAgents, isLoading: agentsLoading } = useAgents()
   const { channels: rawChannels = [] } = useChannels()
   const { tasks, isLoading: tasksLoading } = useTasks()
   const { createTask } = useCreateTask()
   const { updateTask } = useUpdateTask()
   const { deleteTask } = useDeleteTask()
+  const { runTask } = useRunTask()
 
-  const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [agentsLoading, setAgentsLoading] = useState(true)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   const loading = tasksLoading || agentsLoading
+
+  const agents = useMemo(
+    () =>
+      rawAgents
+        .filter(
+          (a) => a.configuration?.soul_enabled === true || a.configuration?.permission_mode === 'bypassPermissions'
+        )
+        .map((a) => ({ id: a.id, name: a.name ?? a.id })),
+    [rawAgents]
+  )
 
   const channels: ChannelInfo[] = useMemo(
     () =>
@@ -787,30 +802,6 @@ const TasksSettings: FC = () => {
       })),
     [rawChannels]
   )
-
-  const loadAgents = useCallback(async () => {
-    if (!client) {
-      setAgentsLoading(false)
-      return
-    }
-
-    try {
-      const agentsRes = await client.listAgents({ limit: 100 })
-      setAgents(
-        agentsRes.data
-          .filter((a) => {
-            return a.configuration?.soul_enabled === true || a.configuration?.permission_mode === 'bypassPermissions'
-          })
-          .map((a) => ({ id: a.id, name: a.name ?? a.id }))
-      )
-    } finally {
-      setAgentsLoading(false)
-    }
-  }, [client])
-
-  useEffect(() => {
-    void loadAgents()
-  }, [loadAgents])
 
   // Auto-select the first task when data is loaded and nothing is selected
   useEffect(() => {
@@ -865,19 +856,9 @@ const TasksSettings: FC = () => {
 
   const handleRun = useCallback(
     async (taskId: string) => {
-      if (!client) {
-        return
-      }
-      await client.runTask(taskId)
-      // Refresh task logs SWR cache so the logs list updates
-      const logsKey = client.taskPaths.logs(taskId)
-      void mutate(logsKey)
-      // Task runs asynchronously — refresh again after a delay to capture completion
-      setTimeout(() => {
-        void mutate(logsKey)
-      }, 1000)
+      await runTask(taskId)
     },
-    [client]
+    [runTask]
   )
 
   const handleToggleStatus = useCallback(

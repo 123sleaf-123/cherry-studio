@@ -1,14 +1,42 @@
 import { dataApiService } from '@data/DataApiService'
 import { useInvalidateCache } from '@data/hooks/useDataApi'
 import { usePaginatedQuery } from '@data/hooks/useDataApi'
+import { useMultiplePreferences } from '@data/hooks/usePreference'
+import { preferenceService } from '@data/PreferenceService'
+import { AgentApiClient } from '@renderer/api/agent'
 import type { CreateTaskRequest, ListTaskLogsResponse, ScheduledTaskEntity, UpdateTaskRequest } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 
-import { useApiServer } from '../useApiServer'
-import { requireAgentClient, useAgentClient } from './useAgentClient'
+const AGENT_API_PREFERENCE_KEYS = {
+  host: 'feature.csaas.host',
+  port: 'feature.csaas.port',
+  apiKey: 'feature.csaas.api_key'
+} as const
+
+const useAgentHttpClient = () => {
+  const { host, port, apiKey } = useMultiplePreferences(AGENT_API_PREFERENCE_KEYS)[0]
+
+  return useMemo(() => {
+    const isConfigLoaded = Object.values(AGENT_API_PREFERENCE_KEYS).every((key) => preferenceService.isCached(key))
+
+    if (!isConfigLoaded || !apiKey) {
+      return null
+    }
+
+    return new AgentApiClient({
+      baseURL: `http://${host}:${port}`,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'X-Api-Key': apiKey
+      }
+    })
+  }, [host, port, apiKey])
+}
+
+export const taskLogsKey = (taskId: string) => `/v1/tasks/${taskId}/logs`
 
 export const useTasks = () => {
   const { items: tasks, total, page, isLoading, error } = usePaginatedQuery('/tasks', { limit: 200 })
@@ -72,13 +100,23 @@ export const useUpdateTask = () => {
 
 export const useRunTask = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const client = useAgentHttpClient()
 
   const runTask = useCallback(
     async (taskId: string): Promise<boolean> => {
+      if (!client) {
+        window.toast.error(t('agent.cherryClaw.tasks.error.runFailed', 'Failed to run task'))
+        return false
+      }
       try {
-        await requireAgentClient(client).runTask(taskId)
+        await client.runTask(taskId)
         window.toast.success({ key: 'run-task', title: t('agent.cherryClaw.tasks.runTriggered') })
+        // Refresh task logs cache so the logs list updates
+        void mutate(taskLogsKey(taskId))
+        // Task runs asynchronously — refresh again after a delay to capture completion
+        setTimeout(() => {
+          void mutate(taskLogsKey(taskId))
+        }, 1000)
         return true
       } catch (error) {
         window.toast.error(
@@ -118,14 +156,13 @@ export const useDeleteTask = () => {
 }
 
 export const useTaskLogs = (taskId: string | null) => {
-  const client = useAgentClient()
-  const { apiServerRunning } = useApiServer()
+  const client = useAgentHttpClient()
 
-  const key = apiServerRunning && taskId && client ? client.taskPaths.logs(taskId) : null
+  const key = taskId && client ? taskLogsKey(taskId) : null
 
   const fetcher = useCallback(async () => {
-    if (!taskId) throw new Error('Task ID required')
-    return requireAgentClient(client).getTaskLogs(taskId, { limit: 50 })
+    if (!taskId || !client) throw new Error('Task ID or client unavailable')
+    return client.getTaskLogs(taskId, { limit: 50 })
   }, [client, taskId])
 
   const { data, error, isLoading } = useSWR<ListTaskLogsResponse>(key, fetcher)
