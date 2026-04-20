@@ -24,7 +24,8 @@ interface SessionSettingPopupParams extends SessionSettingPopupShowParams {
 
 const SessionSettingPopupContainer: React.FC<SessionSettingPopupParams> = ({ tab, agentId, sessionId, resolve }) => {
   const { t } = useTranslation()
-  const { session, isLoading, error } = useSession(agentId, sessionId)
+  const { session, isLoading, error: _error } = useSession(agentId, sessionId)
+  const error = _error ?? null
   const { updateSession } = useUpdateSession(agentId)
 
   const menuItems: SettingsMenuItem[] = useMemo(

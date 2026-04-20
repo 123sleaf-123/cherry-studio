@@ -1,174 +1,105 @@
-import { DEFAULT_SESSION_PAGE_SIZE } from '@renderer/api/agent'
-import type {
-  AgentSessionEntity,
-  CreateAgentSessionResponse,
-  CreateSessionForm,
-  GetAgentSessionResponse,
-  ListAgentSessionsResponse
-} from '@renderer/types'
+import { dataApiService } from '@data/DataApiService'
+import { useInvalidateCache, useMutation, usePaginatedQuery } from '@data/hooks/useDataApi'
+import type { AgentSessionEntity, CreateSessionForm } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
-import { useCallback, useMemo } from 'react'
+import type { AgentSessionDetail } from '@shared/data/types/agent'
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import useSWRInfinite from 'swr/infinite'
 
-import { useAgentClient } from './useAgentClient'
 import { useSessionChanged } from './useSessionChanged'
 
-export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_PAGE_SIZE) => {
+const PAGE_LIMIT = 20
+
+export const useSessions = (agentId: string | null) => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const invalidate = useInvalidateCache()
 
-  const getKey = (pageIndex: number, previousPageData: ListAgentSessionsResponse | null) => {
-    if (!agentId || !client) return null
-    if (previousPageData && previousPageData.data.length < pageSize) return null
-    return [client.getSessionPaths(agentId).base, pageIndex, pageSize]
-  }
+  const listPath = `/agents/${agentId}/sessions` as any
 
-  const fetcher = async ([, pageIndex, pageLimit]: [string, number, number]) => {
-    if (!agentId || !client) throw new Error('No active agent.')
-    return await client.listSessions(agentId, {
-      limit: pageLimit,
-      offset: pageIndex * pageLimit
-    })
-  }
+  const {
+    items: _sessions,
+    total,
+    hasNext,
+    isLoading,
+    isRefreshing,
+    error,
+    nextPage
+  } = usePaginatedQuery(listPath, {
+    limit: PAGE_LIMIT,
+    enabled: !!agentId
+  })
+  const sessions = _sessions as AgentSessionEntity[]
 
-  const { data, error, isLoading, isValidating, mutate, size, setSize } = useSWRInfinite(getKey, fetcher)
+  const { trigger: triggerCreate } = useMutation('POST', listPath, {
+    refresh: agentId ? [listPath] : []
+  })
 
-  const sessions = useMemo(() => {
-    if (!data) return []
-    return data.flatMap((page) => page.data)
-  }, [data])
-
-  const total = useMemo(() => {
-    if (!data || data.length === 0) return 0
-    return data[data.length - 1].total
-  }, [data])
-  const hasMore = sessions.length < total
-  const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === 'undefined')
-
-  const loadMore = useCallback(() => {
-    if (!isLoadingMore && hasMore) {
-      void setSize((currentSize) => currentSize + 1)
-    }
-  }, [isLoadingMore, hasMore, setSize])
+  const { trigger: triggerReorder } = useMutation('PUT', `/agents/${agentId}/sessions/order` as any, {
+    refresh: agentId ? [listPath] : []
+  })
 
   const reload = useCallback(async () => {
-    await mutate()
-  }, [mutate])
+    await invalidate(agentId ? listPath : undefined)
+  }, [agentId, invalidate, listPath])
 
   // Auto-refresh when IM channel creates/updates sessions
-  useSessionChanged(agentId ?? undefined, reload)
+  useSessionChanged(agentId ?? undefined, () => void reload())
 
   const createSession = useCallback(
-    async (form: CreateSessionForm): Promise<CreateAgentSessionResponse | null> => {
-      if (!agentId || !client) return null
+    async (form: CreateSessionForm): Promise<AgentSessionDetail | null> => {
+      if (!agentId) return null
       try {
-        const result = await client.createSession(agentId, form)
-        void mutate(
-          (prev) => {
-            if (!prev || prev.length === 0) {
-              return [{ data: [result], total: 1, limit: pageSize, offset: 0 }]
-            }
-            const newTotal = prev[0].total + 1
-            return prev.map((page, i) => ({
-              ...page,
-              data: i === 0 ? [result, ...page.data] : page.data,
-              total: newTotal
-            }))
-          },
-          { revalidate: false }
-        )
-        return result
+        const result = await triggerCreate({ body: form as any })
+        return result as AgentSessionDetail
       } catch (error) {
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.session.create.error.failed')))
         return null
       }
     },
-    [agentId, client, mutate, pageSize, t]
-  )
-
-  const getSession = useCallback(
-    async (id: string): Promise<GetAgentSessionResponse | null> => {
-      if (!agentId || !client) return null
-      try {
-        const result = await client.getSession(agentId, id)
-        void mutate(
-          (prev) =>
-            prev?.map((page) => ({
-              ...page,
-              data: page.data.map((session) => (session.id === result.id ? result : session))
-            })),
-          { revalidate: false }
-        )
-        return result
-      } catch (error) {
-        window.toast.error(formatErrorMessageWithPrefix(error, t('agent.session.get.error.failed')))
-        return null
-      }
-    },
-    [agentId, client, mutate, t]
+    [agentId, triggerCreate, t]
   )
 
   const deleteSession = useCallback(
     async (id: string): Promise<boolean> => {
-      if (!agentId || !client) return false
+      if (!agentId) return false
       try {
-        await client.deleteSession(agentId, id)
-        void mutate(
-          (prev) => {
-            if (!prev || prev.length === 0) return prev
-            const newTotal = prev[0].total - 1
-            return prev.map((page) => ({
-              ...page,
-              data: page.data.filter((session) => session.id !== id),
-              total: newTotal
-            }))
-          },
-          { revalidate: false }
-        )
+        await dataApiService.delete(`/agents/${agentId}/sessions/${id}` as any)
+        await invalidate(listPath)
         return true
       } catch (error) {
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.session.delete.error.failed')))
         return false
       }
     },
-    [agentId, client, mutate, t]
+    [agentId, invalidate, listPath, t]
   )
 
   const reorderSessions = useCallback(
     async (reorderedList: AgentSessionEntity[]) => {
-      if (!agentId || !client) return
+      if (!agentId) return
       const orderedIds = reorderedList.map((s) => s.id)
-      // Optimistic update: replace all pages with single page containing reordered list
-      void mutate(
-        (prev) => {
-          const realTotal = prev && prev.length > 0 ? prev[prev.length - 1].total : reorderedList.length
-          return [{ data: reorderedList, total: realTotal, limit: pageSize, offset: 0 }]
-        },
-        { revalidate: false }
-      )
       try {
-        await client.reorderSessions(agentId, orderedIds)
+        await triggerReorder({ body: { orderedIds } })
       } catch (error) {
-        void mutate()
+        await invalidate(listPath)
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.session.reorder.error.failed')))
       }
     },
-    [agentId, client, mutate, pageSize, t]
+    [agentId, triggerReorder, invalidate, listPath, t]
   )
 
   return {
     sessions,
     total,
-    hasMore,
+    // Infinite-scroll compat aliases consumed by Sessions.tsx
+    hasMore: hasNext,
+    loadMore: nextPage,
+    isLoadingMore: isLoading,
+    isValidating: isRefreshing,
+    reload,
     error,
     isLoading,
-    isLoadingMore,
-    isValidating,
-    reload,
-    loadMore,
     createSession,
-    getSession,
     deleteSession,
     reorderSessions
   }
