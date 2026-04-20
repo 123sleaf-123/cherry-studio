@@ -1,13 +1,12 @@
-import { cacheService } from '@renderer/data/CacheService'
+import { cacheService } from '@data/CacheService'
+import { dataApiService } from '@data/DataApiService'
+import { useMutation, useQuery } from '@data/hooks/useDataApi'
 import { useCache } from '@renderer/data/hooks/useCache'
 import type { AddAgentForm, CreateAgentResponse, GetAgentResponse } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import useSWR from 'swr'
-
-import { useApiServer } from '../useApiServer'
-import { useAgentClient } from './useAgentClient'
+import { useSWRConfig } from 'swr'
 
 type Result<T> =
   | {
@@ -21,108 +20,83 @@ type Result<T> =
 
 export const useAgents = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
-  const key = client?.agentPaths.base
-  const { apiServerConfig, apiServerRunning } = useApiServer()
+  const { mutate: globalMutate } = useSWRConfig()
 
-  // Disable SWR fetching when server auth is not ready
-  const swrKey = apiServerRunning && apiServerConfig.apiKey && key ? key : null
+  const { data, isLoading, error, mutate } = useQuery('/agents')
+  // Cast to renderer's GetAgentResponse which has the typed configuration schema
+  const agents = (data?.items ?? []) as GetAgentResponse[]
 
-  const fetcher = useCallback(async () => {
-    // API server will start on startup if enabled OR there are agents
-    if (!apiServerConfig.enabled && !apiServerRunning) {
-      throw new Error(t('apiServer.messages.notEnabled'))
-    }
-    if (!apiServerRunning) {
-      throw new Error(t('agent.server.error.not_running'))
-    }
-    if (!client) {
-      throw new Error(t('apiServer.messages.notEnabled'))
-    }
-    const result = await client.listAgents({ sortBy: 'sort_order', orderBy: 'asc' })
-    // NOTE: We only use the array for now. useUpdateAgent depends on this behavior.
-    return result.data
-  }, [apiServerConfig.enabled, apiServerRunning, client, t])
-
-  const { data, error, isLoading, mutate } = useSWR(swrKey, fetcher)
   const [activeAgentId] = useCache('agent.active_id')
+
+  const { trigger: createTrigger } = useMutation('POST', '/agents', { refresh: ['/agents'] })
+
+  const { trigger: reorderTrigger } = useMutation('PUT', '/agents/order', { refresh: ['/agents'] })
 
   const addAgent = useCallback(
     async (form: AddAgentForm): Promise<Result<CreateAgentResponse>> => {
       try {
-        if (!client) {
-          throw new Error(t('apiServer.messages.notEnabled'))
-        }
-        const result = await client.createAgent(form)
-        void mutate((prev) => [result, ...(prev ?? [])])
+        const result = await createTrigger({ body: form as any })
         window.toast.success(t('common.add_success'))
-        return { success: true, data: result }
+        return { success: true, data: result as unknown as CreateAgentResponse }
       } catch (error) {
         const errorMessage = formatErrorMessageWithPrefix(error, t('agent.add.error.failed'))
         window.toast.error(errorMessage)
         if (error instanceof Error) {
           return { success: false, error }
         } else {
-          return { success: false, error: new Error(formatErrorMessageWithPrefix(error, t('agent.add.error.failed'))) }
+          return {
+            success: false,
+            error: new Error(formatErrorMessageWithPrefix(error, t('agent.add.error.failed')))
+          }
         }
       }
     },
-    [client, mutate, t]
+    [createTrigger, t]
   )
 
   const deleteAgent = useCallback(
     async (id: string) => {
       try {
-        if (!client) {
-          throw new Error(t('apiServer.messages.notEnabled'))
-        }
-        await client.deleteAgent(id)
+        await dataApiService.delete(`/agents/${id}`)
         const currentMap = cacheService.get('agent.session.active_id_map') ?? {}
         cacheService.set('agent.session.active_id_map', { ...currentMap, [id]: null })
         if (activeAgentId === id) {
-          const newId = data?.filter((a) => a.id !== id).find(() => true)?.id
+          const newId = agents.filter((a) => a.id !== id).find(() => true)?.id
           cacheService.set('agent.active_id', newId ?? null)
         }
-        void mutate((prev) => prev?.filter((a) => a.id !== id) ?? [])
+        void globalMutate((key) => Array.isArray(key) && key[0] === '/agents')
         window.toast.success(t('common.delete_success'))
       } catch (error) {
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.delete.error.failed')))
       }
     },
-    [activeAgentId, client, data, mutate, t]
+    [activeAgentId, agents, globalMutate, t]
   )
 
   const getAgent = useCallback(
-    async (id: string) => {
-      if (!client) {
-        return
-      }
-      const result = await client.getAgent(id)
-      void mutate((prev) => prev?.map((a) => (a.id === result.id ? result : a)) ?? [])
+    (id: string): GetAgentResponse | undefined => {
+      return agents.find((a) => a.id === id)
     },
-    [client, mutate]
+    [agents]
   )
 
   const reorderAgents = useCallback(
     async (reorderedList: GetAgentResponse[]) => {
       const orderedIds = reorderedList.map((a) => a.id)
-      // Optimistic update
-      void mutate(reorderedList, false)
+      // Optimistic update — cast reorderedList since GetAgentResponse is compatible with AgentDetail at runtime
+      void mutate(data ? { ...data, items: reorderedList as any } : undefined, { revalidate: false })
       try {
-        if (!client) {
-          throw new Error(t('apiServer.messages.notEnabled'))
-        }
-        await client.reorderAgents(orderedIds)
+        await reorderTrigger({ body: { orderedIds } })
       } catch (error) {
         void mutate()
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.reorder.error.failed')))
       }
     },
-    [client, mutate, t]
+    [data, mutate, reorderTrigger, t]
   )
 
   return {
-    agents: data,
+    agents,
     error,
     isLoading,
     addAgent,

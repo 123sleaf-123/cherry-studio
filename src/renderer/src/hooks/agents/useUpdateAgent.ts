@@ -1,32 +1,22 @@
 import { cacheService } from '@data/CacheService'
-import type { AgentEntity, ListAgentsResponse, UpdateAgentForm } from '@renderer/types'
+import { dataApiService } from '@data/DataApiService'
+import type { AgentEntity, UpdateAgentForm } from '@renderer/types'
 import type { UpdateAgentBaseOptions, UpdateAgentFunction } from '@renderer/types/agent'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { mutate } from 'swr'
 
-import { useAgentClient } from './useAgentClient'
-
 export const useUpdateAgent = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
-  const listKey = client?.agentPaths.base
 
   const updateAgent: UpdateAgentFunction = useCallback(
     async (form: UpdateAgentForm, options?: UpdateAgentBaseOptions): Promise<AgentEntity | undefined> => {
       try {
-        if (!client || !listKey) {
-          throw new Error(t('apiServer.messages.notEnabled'))
-        }
-        const itemKey = client.agentPaths.withId(form.id)
-        // may change to optimistic update
-        const result = await client.updateAgent(form)
-        void mutate<ListAgentsResponse['data']>(
-          listKey,
-          (prev) => prev?.map((a) => (a.id === result.id ? result : a)) ?? []
-        )
-        void mutate(itemKey, result)
+        const { id, ...body } = form
+        const result = await dataApiService.patch(`/agents/${id}`, { body })
+        // Invalidate list and item caches
+        void mutate((key) => Array.isArray(key) && (key[0] === '/agents' || key[0] === `/agents/${id}`))
         if (options?.showSuccessToast ?? true) {
           window.toast.success({ key: 'update-agent', title: t('common.update_success') })
         }
@@ -36,19 +26,18 @@ export const useUpdateAgent = () => {
         // Other sessions refresh via SWR stale-while-revalidate when navigated to.
         // Using cacheService.get() instead of useCache to avoid adding reactive deps to useCallback.
         const activeSessionIdMap = cacheService.get('agent.session.active_id_map') ?? {}
-        const activeSessionId = activeSessionIdMap?.[form.id]
+        const activeSessionId = activeSessionIdMap?.[id]
         if (activeSessionId) {
-          const sessionKey = client.getSessionPaths(form.id).withId(activeSessionId)
-          void mutate(sessionKey)
+          void mutate((key) => Array.isArray(key) && key[0] === `/agents/${id}/sessions/${activeSessionId}`)
         }
 
-        return result
+        return result as unknown as AgentEntity
       } catch (error) {
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.update.error.failed')))
         return undefined
       }
     },
-    [client, listKey, t]
+    [t]
   )
 
   const updateModel = useCallback(
