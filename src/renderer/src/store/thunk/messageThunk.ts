@@ -19,7 +19,6 @@ import { dataApiService } from '@data/DataApiService'
 import { preferenceService } from '@data/PreferenceService'
 import { loggerService } from '@logger'
 import { AiSdkToChunkAdapter } from '@renderer/aiCore/chunk/AiSdkToChunkAdapter'
-import { AgentApiClient } from '@renderer/api/agent'
 import db from '@renderer/databases'
 import { getModel } from '@renderer/hooks/useModel'
 import { fetchMessagesSummary, transformMessagesAndFetch } from '@renderer/services/ApiService'
@@ -33,12 +32,7 @@ import { createStreamProcessor, type StreamProcessorCallbacks } from '@renderer/
 import store from '@renderer/store'
 import { updateTopicUpdatedAt } from '@renderer/store/assistants'
 import { type ApiServerConfig, type Assistant, type FileMetadata, type Model, type Topic } from '@renderer/types'
-import type {
-  AgentEffort,
-  AgentSessionEntity,
-  AgentThinkingConfig,
-  GetAgentSessionResponse
-} from '@renderer/types/agent'
+import type { AgentEffort, AgentThinkingConfig, GetAgentSessionResponse } from '@renderer/types/agent'
 import { ChunkType } from '@renderer/types/chunk'
 import type { FileMessageBlock, ImageMessageBlock, Message, MessageBlock } from '@renderer/types/newMessage'
 import {
@@ -179,46 +173,6 @@ const createAgentApiHeaders = (apiKey: string) => ({
   'X-Api-Key': apiKey
 })
 
-const createAgentApiClient = async (): Promise<AgentApiClient | null> => {
-  const apiServer = await getAgentApiServerConfig()
-  if (!apiServer?.apiKey) {
-    return null
-  }
-
-  return new AgentApiClient({
-    baseURL: buildAgentBaseURL(apiServer),
-    headers: createAgentApiHeaders(apiServer.apiKey)
-  })
-}
-
-const updateRenamedAgentSessionCache = async (
-  client: AgentApiClient,
-  agentId: string,
-  updatedSession: GetAgentSessionResponse
-): Promise<void> => {
-  const paths = client.getSessionPaths(agentId)
-
-  await mutate(paths.withId(updatedSession.id), updatedSession, {
-    revalidate: false
-  })
-
-  await mutate<AgentSessionEntity[]>(
-    paths.base,
-    (prev) =>
-      prev?.map((sessionItem) =>
-        sessionItem.id === updatedSession.id
-          ? ({
-              ...sessionItem,
-              name: updatedSession.name
-            } as AgentSessionEntity)
-          : sessionItem
-      ) ?? prev,
-    {
-      revalidate: false
-    }
-  )
-}
-
 export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionContext, topicId: string): Promise<void> => {
   const lockId = `${agentSession.agentId}:${agentSession.sessionId}`
   if (agentSessionRenameLocks.has(lockId)) {
@@ -226,11 +180,6 @@ export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionConte
   }
 
   try {
-    const client = await createAgentApiClient()
-    if (!client) {
-      return
-    }
-
     const { messages } = await dbFacade.fetchMessages(topicId, true)
     if (!messages.length) {
       return
@@ -246,7 +195,7 @@ export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionConte
 
     let session: GetAgentSessionResponse
     try {
-      session = await client.getSession(agentSession.agentId, agentSession.sessionId)
+      session = await dataApiService.get(`/agents/${agentSession.agentId}/sessions/${agentSession.sessionId}` as any)
     } catch (error) {
       logger.warn('Failed to fetch agent session for rename', error as Error)
       return
@@ -259,19 +208,23 @@ export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionConte
 
     let updatedSession: GetAgentSessionResponse
     try {
-      updatedSession = await client.updateSession(agentSession.agentId, {
-        id: agentSession.sessionId,
-        name: summaryText
-      })
+      updatedSession = await dataApiService.patch(
+        `/agents/${agentSession.agentId}/sessions/${agentSession.sessionId}` as any,
+        { body: { name: summaryText } }
+      )
     } catch (error) {
       logger.warn('Failed to update agent session name', error as Error)
       return
     }
 
     try {
-      await updateRenamedAgentSessionCache(client, agentSession.agentId, updatedSession)
+      await mutate(
+        (key: unknown) =>
+          Array.isArray(key) && key[0] === `/agents/${agentSession.agentId}/sessions/${updatedSession.id}`
+      )
+      await mutate((key: unknown) => Array.isArray(key) && key[0] === `/agents/${agentSession.agentId}/sessions`)
     } catch (error) {
-      logger.warn('Failed to update agent session cache after rename', error as Error)
+      logger.warn('Failed to revalidate agent session cache after rename', error as Error)
     }
   } catch (error) {
     logger.warn('Unexpected error during agent session rename', error as Error)
@@ -772,15 +725,14 @@ const fetchAndProcessAgentResponseImpl = async (
 
         // Refresh session data to get updated slash_commands from backend
         // This happens after the SDK init message updates the session in the database
-        const client = await createAgentApiClient()
-        if (client) {
-          const paths = client.getSessionPaths(agentSession.agentId)
-          await mutate(paths.withId(agentSession.sessionId))
-          logger.info('Refreshed session data after sessionId update', {
-            agentId: agentSession.agentId,
-            sessionId: agentSession.sessionId
-          })
-        }
+        await mutate(
+          (key: unknown) =>
+            Array.isArray(key) && key[0] === `/agents/${agentSession.agentId}/sessions/${agentSession.sessionId}`
+        )
+        logger.info('Refreshed session data after sessionId update', {
+          agentId: agentSession.agentId,
+          sessionId: agentSession.sessionId
+        })
       } catch (error) {
         logger.error('Failed to persist agent session ID during stream', error as Error)
       }
