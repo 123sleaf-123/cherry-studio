@@ -15,6 +15,7 @@
  * --------------------------------------------------------------------------
  */
 import { cacheService } from '@data/CacheService'
+import { dataApiService } from '@data/DataApiService'
 import { preferenceService } from '@data/PreferenceService'
 import { loggerService } from '@logger'
 import { AiSdkToChunkAdapter } from '@renderer/aiCore/chunk/AiSdkToChunkAdapter'
@@ -60,6 +61,7 @@ import {
 } from '@renderer/utils/messageUtils/create'
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
 import { getTopicQueue, waitForTopicQueue } from '@renderer/utils/queue'
+import type { AgentDetail } from '@shared/data/types/agent'
 import { IpcChannel } from '@shared/IpcChannel'
 import { defaultAppHeaders } from '@shared/utils'
 import type { TextStreamPart } from 'ai'
@@ -975,11 +977,8 @@ const fetchAndProcessAssistantResponseImpl = async (
     const activeAgentId = cacheService.get('agent.active_id') as string | null
     if (activeAgentId) {
       try {
-        const agentClient = await createAgentApiClient()
-        if (agentClient) {
-          const agentData = await agentClient.getAgent(activeAgentId)
-          allowedTools = agentData?.allowed_tools
-        }
+        const agentData = await dataApiService.get(`/agents/${activeAgentId}` as any)
+        allowedTools = (agentData as AgentDetail)?.allowed_tools
       } catch {
         // Agent fetch failed — proceed without allowedTools
       }
