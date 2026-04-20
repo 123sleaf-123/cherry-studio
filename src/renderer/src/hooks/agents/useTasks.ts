@@ -1,33 +1,22 @@
-import type {
-  CreateTaskRequest,
-  ListTaskLogsResponse,
-  ListTasksResponse,
-  ScheduledTaskEntity,
-  UpdateTaskRequest
-} from '@renderer/types'
+import { dataApiService } from '@data/DataApiService'
+import { useInvalidateCache } from '@data/hooks/useDataApi'
+import { usePaginatedQuery } from '@data/hooks/useDataApi'
+import type { CreateTaskRequest, ListTaskLogsResponse, ScheduledTaskEntity, UpdateTaskRequest } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import useSWR, { mutate } from 'swr'
+import useSWR from 'swr'
 
 import { useApiServer } from '../useApiServer'
 import { requireAgentClient, useAgentClient } from './useAgentClient'
 
-const TASKS_LIST_KEY = '/v1/tasks'
-
 export const useTasks = () => {
-  const client = useAgentClient()
-  const { apiServerRunning } = useApiServer()
-
-  const key = apiServerRunning && client ? TASKS_LIST_KEY : null
-
-  const fetcher = useCallback(async () => requireAgentClient(client).listTasks({ limit: 200 }), [client])
-
-  const { data, error, isLoading } = useSWR<ListTasksResponse>(key, fetcher)
+  const { items: tasks, total, page, isLoading, error } = usePaginatedQuery('/tasks', { limit: 200 })
 
   return {
-    tasks: data?.data ?? [],
-    total: data?.total ?? 0,
+    tasks: tasks as ScheduledTaskEntity[],
+    total,
+    page,
     error,
     isLoading
   }
@@ -35,15 +24,15 @@ export const useTasks = () => {
 
 export const useCreateTask = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const invalidate = useInvalidateCache()
 
   const createTask = useCallback(
     async (agentId: string, req: CreateTaskRequest): Promise<ScheduledTaskEntity | undefined> => {
       try {
-        const result = await requireAgentClient(client).createTask(agentId, req)
-        void mutate(TASKS_LIST_KEY)
+        const result = await dataApiService.post(`/agents/${agentId}/tasks`, { body: req })
+        await invalidate('/tasks')
         window.toast.success({ key: 'create-task', title: t('common.create_success') })
-        return result
+        return result as ScheduledTaskEntity
       } catch (error) {
         window.toast.error(
           formatErrorMessageWithPrefix(error, t('agent.cherryClaw.tasks.error.createFailed', 'Failed to create task'))
@@ -51,7 +40,7 @@ export const useCreateTask = () => {
         return undefined
       }
     },
-    [client, t]
+    [invalidate, t]
   )
 
   return { createTask }
@@ -59,15 +48,15 @@ export const useCreateTask = () => {
 
 export const useUpdateTask = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const invalidate = useInvalidateCache()
 
   const updateTask = useCallback(
-    async (taskId: string, updates: UpdateTaskRequest): Promise<ScheduledTaskEntity | undefined> => {
+    async (agentId: string, taskId: string, updates: UpdateTaskRequest): Promise<ScheduledTaskEntity | undefined> => {
       try {
-        const result = await requireAgentClient(client).updateTask(taskId, updates)
-        void mutate(TASKS_LIST_KEY)
+        const result = await dataApiService.patch(`/agents/${agentId}/tasks/${taskId}`, { body: updates })
+        await invalidate('/tasks')
         window.toast.success({ key: 'update-task', title: t('common.update_success') })
-        return result
+        return result as ScheduledTaskEntity
       } catch (error) {
         window.toast.error(
           formatErrorMessageWithPrefix(error, t('agent.cherryClaw.tasks.error.updateFailed', 'Failed to update task'))
@@ -75,7 +64,7 @@ export const useUpdateTask = () => {
         return undefined
       }
     },
-    [client, t]
+    [invalidate, t]
   )
 
   return { updateTask }
@@ -89,7 +78,6 @@ export const useRunTask = () => {
     async (taskId: string): Promise<boolean> => {
       try {
         await requireAgentClient(client).runTask(taskId)
-        void mutate(TASKS_LIST_KEY)
         window.toast.success({ key: 'run-task', title: t('agent.cherryClaw.tasks.runTriggered') })
         return true
       } catch (error) {
@@ -107,13 +95,13 @@ export const useRunTask = () => {
 
 export const useDeleteTask = () => {
   const { t } = useTranslation()
-  const client = useAgentClient()
+  const invalidate = useInvalidateCache()
 
   const deleteTask = useCallback(
-    async (taskId: string): Promise<boolean> => {
+    async (agentId: string, taskId: string): Promise<boolean> => {
       try {
-        await requireAgentClient(client).deleteTask(taskId)
-        void mutate(TASKS_LIST_KEY)
+        await dataApiService.delete(`/agents/${agentId}/tasks/${taskId}`)
+        await invalidate('/tasks')
         window.toast.success({ key: 'delete-task', title: t('common.delete_success') })
         return true
       } catch (error) {
@@ -123,7 +111,7 @@ export const useDeleteTask = () => {
         return false
       }
     },
-    [client, t]
+    [invalidate, t]
   )
 
   return { deleteTask }

@@ -5,7 +5,7 @@ import { useTheme } from '@renderer/context/ThemeProvider'
 import { cacheService } from '@renderer/data/CacheService'
 import { useAgentClient } from '@renderer/hooks/agents/useAgentClient'
 import { useChannels } from '@renderer/hooks/agents/useChannels'
-import { useTaskLogs } from '@renderer/hooks/agents/useTasks'
+import { useCreateTask, useDeleteTask, useTaskLogs, useTasks, useUpdateTask } from '@renderer/hooks/agents/useTasks'
 import type { CreateTaskRequest, ScheduledTaskEntity, TaskRunLogEntity, UpdateTaskRequest } from '@renderer/types'
 import { useNavigate } from '@tanstack/react-router'
 import { Alert, Button, DatePicker, Empty, Input, Modal, Popconfirm, Select, Spin, Table, Tag, Tooltip } from 'antd'
@@ -762,12 +762,17 @@ const TasksSettings: FC = () => {
   const { t } = useTranslation()
   const client = useAgentClient()
   const { channels: rawChannels = [] } = useChannels()
+  const { tasks, isLoading: tasksLoading } = useTasks()
+  const { createTask } = useCreateTask()
+  const { updateTask } = useUpdateTask()
+  const { deleteTask } = useDeleteTask()
 
   const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [tasks, setTasks] = useState<ScheduledTaskEntity[]>([])
-  const [loading, setLoading] = useState(true)
+  const [agentsLoading, setAgentsLoading] = useState(true)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+
+  const loading = tasksLoading || agentsLoading
 
   const channels: ChannelInfo[] = useMemo(
     () =>
@@ -783,17 +788,14 @@ const TasksSettings: FC = () => {
     [rawChannels]
   )
 
-  const loadData = useCallback(async () => {
+  const loadAgents = useCallback(async () => {
     if (!client) {
+      setAgentsLoading(false)
       return
     }
 
     try {
-      const [tasksRes, agentsRes] = await Promise.all([
-        client.listTasks({ limit: 200 }),
-        client.listAgents({ limit: 100 })
-      ])
-      setTasks(tasksRes.data)
+      const agentsRes = await client.listAgents({ limit: 100 })
       setAgents(
         agentsRes.data
           .filter((a) => {
@@ -802,13 +804,13 @@ const TasksSettings: FC = () => {
           .map((a) => ({ id: a.id, name: a.name ?? a.id }))
       )
     } finally {
-      setLoading(false)
+      setAgentsLoading(false)
     }
   }, [client])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    void loadAgents()
+  }, [loadAgents])
 
   // Auto-select the first task when data is loaded and nothing is selected
   useEffect(() => {
@@ -833,38 +835,32 @@ const TasksSettings: FC = () => {
 
   const handleCreate = useCallback(
     async (agentId: string, req: CreateTaskRequest) => {
-      if (!client) {
-        return
+      const created = await createTask(agentId, req)
+      if (created) {
+        setCreating(false)
+        setSelectedTaskId(created.id)
       }
-      const created = await client.createTask(agentId, req)
-      setCreating(false)
-      await loadData()
-      setSelectedTaskId(created.id)
     },
-    [client, loadData]
+    [createTask]
   )
 
   const handleUpdate = useCallback(
     async (taskId: string, updates: UpdateTaskRequest) => {
-      if (!client) {
-        return
-      }
-      await client.updateTask(taskId, updates)
-      void loadData()
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) return
+      await updateTask(task.agent_id, taskId, updates)
     },
-    [client, loadData]
+    [tasks, updateTask]
   )
 
   const handleDelete = useCallback(
     async (taskId: string) => {
-      if (!client) {
-        return
-      }
-      await client.deleteTask(taskId)
-      if (selectedTaskId === taskId) setSelectedTaskId(null)
-      void loadData()
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) return
+      const success = await deleteTask(task.agent_id, taskId)
+      if (success && selectedTaskId === taskId) setSelectedTaskId(null)
     },
-    [client, selectedTaskId, loadData]
+    [tasks, deleteTask, selectedTaskId]
   )
 
   const handleRun = useCallback(
@@ -873,28 +869,24 @@ const TasksSettings: FC = () => {
         return
       }
       await client.runTask(taskId)
-      void loadData()
       // Refresh task logs SWR cache so the logs list updates
       const logsKey = client.taskPaths.logs(taskId)
       void mutate(logsKey)
       // Task runs asynchronously — refresh again after a delay to capture completion
       setTimeout(() => {
         void mutate(logsKey)
-        void loadData()
       }, 1000)
     },
-    [client, loadData]
+    [client]
   )
 
   const handleToggleStatus = useCallback(
     async (taskId: string, newStatus: string) => {
-      if (!client) {
-        return
-      }
-      await client.updateTask(taskId, { status: newStatus as 'active' | 'paused' })
-      void loadData()
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) return
+      await updateTask(task.agent_id, taskId, { status: newStatus as 'active' | 'paused' })
     },
-    [client, loadData]
+    [tasks, updateTask]
   )
 
   if (loading) {
