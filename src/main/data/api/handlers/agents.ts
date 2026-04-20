@@ -15,7 +15,7 @@ import { sessionService } from '@main/services/agents/services/SessionService'
 import { taskService } from '@main/services/agents/services/TaskService'
 import { skillService } from '@main/services/agents/skills/SkillService'
 import { DataApiErrorFactory } from '@shared/data/api'
-import type { ApiHandler, ApiMethods } from '@shared/data/api/apiTypes'
+import type { ApiHandler, ApiMethods, OffsetPaginationParams } from '@shared/data/api/apiTypes'
 import type { AgentSchemas } from '@shared/data/api/schemas/agents'
 import type {
   CreateAgentRequest,
@@ -45,12 +45,19 @@ export const agentHandlers: {
   '/agents': {
     GET: async () => {
       const { agents, total } = await agentService.listAgents()
-      return { data: agents, total, limit: agents.length, offset: 0 }
+      return { items: agents, total, page: 1 }
     },
 
     POST: async ({ body }) => {
       requireFields(body as unknown as Record<string, unknown>, ['type', 'name', 'model'])
       return await agentService.createAgent(body as CreateAgentRequest)
+    }
+  },
+
+  '/agents/order': {
+    PUT: async ({ body }) => {
+      await agentService.reorderAgents((body as { orderedIds: string[] }).orderedIds)
+      return undefined
     }
   },
 
@@ -77,13 +84,20 @@ export const agentHandlers: {
   '/agents/:id/sessions': {
     GET: async ({ params }) => {
       const { sessions, total } = await sessionService.listSessions(params.id)
-      return { data: sessions, total, limit: sessions.length, offset: 0 }
+      return { items: sessions, total, page: 1 }
     },
 
     POST: async ({ params, body }) => {
       const session = await sessionService.createSession(params.id, body as Partial<CreateSessionRequest>)
       if (!session) throw DataApiErrorFactory.notFound('Session', params.id)
       return session
+    }
+  },
+
+  '/agents/:id/sessions/order': {
+    PUT: async ({ params, body }) => {
+      await sessionService.reorderSessions(params.id, (body as { orderedIds: string[] }).orderedIds)
+      return undefined
     }
   },
 
@@ -128,7 +142,7 @@ export const agentHandlers: {
   '/agents/:id/tasks': {
     GET: async ({ params }) => {
       const { tasks, total } = await taskService.listTasks(params.id)
-      return { data: tasks, total, limit: tasks.length, offset: 0 }
+      return { items: tasks, total, page: 1 }
     },
 
     POST: async ({ params, body }) => {
@@ -157,10 +171,21 @@ export const agentHandlers: {
     }
   },
 
+  '/tasks': {
+    GET: async ({ query }) => {
+      const q = query as OffsetPaginationParams | undefined
+      const page = q?.page ?? 1
+      const limit = q?.limit ?? 50
+      const offset = (page - 1) * limit
+      const { tasks, total } = await taskService.listAllTasks({ limit, offset })
+      return { items: tasks, total, page }
+    }
+  },
+
   '/skills': {
     GET: async () => {
       const skills = await skillService.list()
-      return { data: skills, total: skills.length, limit: skills.length, offset: 0 }
+      return { items: skills, total: skills.length, page: 1 }
     }
   },
 

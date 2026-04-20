@@ -23,6 +23,8 @@ import type {
   TaskStatus
 } from '@shared/data/types/agent'
 
+import type { OffsetPaginationParams, OffsetPaginationResponse } from '../apiTypes'
+
 // ============================================================================
 // Agent DTOs
 // ============================================================================
@@ -110,6 +112,14 @@ export interface AgentSchemas {
     }
   }
 
+  /** Reorder agents */
+  '/agents/order': {
+    PUT: {
+      body: { orderedIds: string[] }
+      response: void
+    }
+  }
+
   /** Get, update, or delete a specific agent */
   '/agents/:id': {
     GET: {
@@ -137,6 +147,15 @@ export interface AgentSchemas {
       params: { id: string }
       body: CreateSessionDto
       response: AgentSessionDetail
+    }
+  }
+
+  /** Reorder sessions within an agent */
+  '/agents/:id/sessions/order': {
+    PUT: {
+      params: { id: string }
+      body: { orderedIds: string[] }
+      response: void
     }
   }
 
@@ -201,6 +220,14 @@ export interface AgentSchemas {
     DELETE: {
       params: { id: string; tid: string }
       response: void
+    }
+  }
+
+  /** List all tasks across all agents */
+  '/tasks': {
+    GET: {
+      query: OffsetPaginationParams
+      response: OffsetPaginationResponse<ScheduledTaskEntity>
     }
   }
 

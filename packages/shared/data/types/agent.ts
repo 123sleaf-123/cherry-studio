@@ -6,6 +6,8 @@
  * main and renderer.
  */
 
+import type { OffsetPaginationResponse } from '../api/apiTypes'
+
 // ============================================================================
 // Core agent types
 // ============================================================================
@@ -59,12 +61,7 @@ export interface AgentDetail extends AgentEntity {
   tools?: Array<{ id: string; name: string; description?: string }>
 }
 
-export interface ListAgentsResponse {
-  data: AgentDetail[]
-  total: number
-  limit: number
-  offset: number
-}
+export type ListAgentsResponse = OffsetPaginationResponse<AgentDetail>
 
 // ============================================================================
 // Session entity
@@ -90,12 +87,7 @@ export interface AgentSessionDetail extends AgentSessionEntity {
   }>
 }
 
-export interface ListAgentSessionsResponse {
-  data: AgentSessionEntity[]
-  total: number
-  limit: number
-  offset: number
-}
+export type ListAgentSessionsResponse = OffsetPaginationResponse<AgentSessionEntity>
 
 // ============================================================================
 // Session message entity
@@ -137,12 +129,7 @@ export interface ScheduledTaskEntity {
   updated_at: string
 }
 
-export interface ListTasksResponse {
-  data: ScheduledTaskEntity[]
-  total: number
-  limit: number
-  offset: number
-}
+export type ListTasksResponse = OffsetPaginationResponse<ScheduledTaskEntity>
 
 // ============================================================================
 // Skill entity
@@ -164,6 +151,4 @@ export interface InstalledSkill {
   updatedAt: number
 }
 
-export interface ListSkillsResponse {
-  data: InstalledSkill[]
-}
+export type ListSkillsResponse = OffsetPaginationResponse<InstalledSkill>

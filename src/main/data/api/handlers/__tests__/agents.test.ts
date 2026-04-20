@@ -114,7 +114,7 @@ describe('agentHandlers', () => {
       const result = await agentHandlers['/agents'].GET({} as never)
 
       expect(listAgentsMock).toHaveBeenCalledOnce()
-      expect(result).toMatchObject({ data: [mockAgent], total: 1 })
+      expect(result).toMatchObject({ items: [mockAgent], total: 1, page: 1 })
     })
 
     it('delegates POST to agentService.createAgent', async () => {
@@ -213,7 +213,7 @@ describe('agentHandlers', () => {
       } as never)
 
       expect(listSessionsMock).toHaveBeenCalledWith(AGENT_ID)
-      expect(result).toMatchObject({ data: [mockSession], total: 1 })
+      expect(result).toMatchObject({ items: [mockSession], total: 1, page: 1 })
     })
 
     it('delegates POST to sessionService.createSession', async () => {
@@ -318,7 +318,7 @@ describe('agentHandlers', () => {
       } as never)
 
       expect(listTasksMock).toHaveBeenCalledWith(AGENT_ID)
-      expect(result).toMatchObject({ data: [mockTask], total: 1 })
+      expect(result).toMatchObject({ items: [mockTask], total: 1, page: 1 })
     })
 
     it('delegates POST to taskService.createTask', async () => {
@@ -376,7 +376,7 @@ describe('agentHandlers', () => {
       const result = await agentHandlers['/skills'].GET({} as never)
 
       expect(listSkillsMock).toHaveBeenCalledOnce()
-      expect(result).toMatchObject({ data: [mockSkill], total: 1, offset: 0 })
+      expect(result).toMatchObject({ items: [mockSkill], total: 1, page: 1 })
     })
   })
 
