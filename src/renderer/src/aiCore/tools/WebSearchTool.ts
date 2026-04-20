@@ -1,9 +1,12 @@
+import { loggerService } from '@logger'
 import { webSearchService } from '@renderer/services/WebSearchService'
 import type { WebSearchProvider, WebSearchProviderResponse } from '@renderer/types'
 import type { ExtractResults } from '@renderer/utils/extract'
 import { REFERENCE_PROMPT } from '@shared/config/prompts'
 import { type InferToolInput, type InferToolOutput, tool } from 'ai'
 import * as z from 'zod'
+
+const logger = loggerService.withContext('WebSearchTool')
 
 /**
  * 使用预提取关键词的网络搜索工具
@@ -54,6 +57,15 @@ You can use this tool as-is to search with the prepared queries, or provide addi
         query: '',
         results: []
       }
+
+      if (!webSearchProvider) {
+        logger.warn('Skip web search because provider is unavailable', {
+          webSearchProviderId,
+          requestId
+        })
+        return searchResults
+      }
+
       // 检查是否需要搜索
       if (finalQueries[0] === 'not_needed') {
         return searchResults
@@ -66,7 +78,7 @@ You can use this tool as-is to search with the prepared queries, or provide addi
           links: extractedKeywords.links
         }
       }
-      searchResults = await webSearchService.processWebsearch(webSearchProvider!, extractResults, requestId)
+      searchResults = await webSearchService.processWebsearch(webSearchProvider, extractResults, requestId)
 
       return searchResults
     },
