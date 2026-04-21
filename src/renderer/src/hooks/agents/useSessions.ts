@@ -14,7 +14,7 @@ export const useSessions = (agentId: string | null) => {
   const { t } = useTranslation()
   const invalidate = useInvalidateCache()
 
-  const listPath = `/agents/${agentId}/sessions` as any
+  const listPath = `/agents/${agentId!}/sessions` as const
 
   const {
     items: _sessions,
@@ -34,7 +34,7 @@ export const useSessions = (agentId: string | null) => {
     refresh: agentId ? [listPath] : []
   })
 
-  const { trigger: triggerReorder } = useMutation('PUT', `/agents/${agentId}/sessions/order` as any, {
+  const { trigger: triggerReorder } = useMutation('PUT', `/agents/${agentId!}/sessions/order` as const, {
     refresh: agentId ? [listPath] : []
   })
 
@@ -63,6 +63,7 @@ export const useSessions = (agentId: string | null) => {
     async (id: string): Promise<boolean> => {
       if (!agentId) return false
       try {
+        // Two-variable path causes TypeScript to union-match multiple routes — as any is intentional.
         await dataApiService.delete(`/agents/${agentId}/sessions/${id}` as any)
         await invalidate(listPath)
         return true

@@ -55,7 +55,6 @@ import {
 } from '@renderer/utils/messageUtils/create'
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
 import { getTopicQueue, waitForTopicQueue } from '@renderer/utils/queue'
-import type { AgentDetail } from '@shared/data/types/agent'
 import { IpcChannel } from '@shared/IpcChannel'
 import { defaultAppHeaders } from '@shared/utils'
 import type { TextStreamPart } from 'ai'
@@ -195,6 +194,7 @@ export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionConte
 
     let session: GetAgentSessionResponse
     try {
+      // Two-variable path causes TypeScript to union-match /agents/:id and /agents/:id/sessions/:sid — as any is intentional.
       session = await dataApiService.get(`/agents/${agentSession.agentId}/sessions/${agentSession.sessionId}` as any)
     } catch (error) {
       logger.warn('Failed to fetch agent session for rename', error as Error)
@@ -208,6 +208,7 @@ export const renameAgentSessionIfNeeded = async (agentSession: AgentSessionConte
 
     let updatedSession: GetAgentSessionResponse
     try {
+      // Two-variable path causes TypeScript to union-match multiple routes — as any is intentional.
       updatedSession = await dataApiService.patch(
         `/agents/${agentSession.agentId}/sessions/${agentSession.sessionId}` as any,
         { body: { name: summaryText } }
@@ -929,8 +930,8 @@ const fetchAndProcessAssistantResponseImpl = async (
     const activeAgentId = cacheService.get('agent.active_id') as string | null
     if (activeAgentId) {
       try {
-        const agentData = await dataApiService.get(`/agents/${activeAgentId}` as any)
-        allowedTools = (agentData as AgentDetail)?.allowed_tools
+        const agentData = await dataApiService.get(`/agents/${activeAgentId}` as const)
+        allowedTools = agentData?.allowed_tools
       } catch {
         // Agent fetch failed — proceed without allowedTools
       }

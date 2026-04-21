@@ -340,6 +340,9 @@ export const GetAgentResponseSchema = AgentEntitySchema.extend({
 
 export type GetAgentResponse = z.infer<typeof GetAgentResponseSchema>
 
+// NOTE: These list-response types use the Express apiServer shape {data, total, limit, offset}.
+// DataApi (IPC) uses OffsetPaginationResponse {items, total, page} defined in packages/shared.
+// Both shapes intentionally coexist: Express handlers import from this file; DataApi handlers import from @shared.
 export const ListAgentsResponseSchema = z.object({
   data: z.array(GetAgentResponseSchema),
   total: z.int(),

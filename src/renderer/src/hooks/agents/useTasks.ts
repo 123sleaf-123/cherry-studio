@@ -1,40 +1,12 @@
 import { dataApiService } from '@data/DataApiService'
-import { useInvalidateCache } from '@data/hooks/useDataApi'
-import { usePaginatedQuery } from '@data/hooks/useDataApi'
-import { useMultiplePreferences } from '@data/hooks/usePreference'
-import { preferenceService } from '@data/PreferenceService'
-import { AgentApiClient } from '@renderer/api/agent'
+import { useInvalidateCache, usePaginatedQuery } from '@data/hooks/useDataApi'
 import type { CreateTaskRequest, ListTaskLogsResponse, ScheduledTaskEntity, UpdateTaskRequest } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import useSWR, { mutate } from 'swr'
 
-const AGENT_API_PREFERENCE_KEYS = {
-  host: 'feature.csaas.host',
-  port: 'feature.csaas.port',
-  apiKey: 'feature.csaas.api_key'
-} as const
-
-const useAgentHttpClient = () => {
-  const { host, port, apiKey } = useMultiplePreferences(AGENT_API_PREFERENCE_KEYS)[0]
-
-  return useMemo(() => {
-    const isConfigLoaded = Object.values(AGENT_API_PREFERENCE_KEYS).every((key) => preferenceService.isCached(key))
-
-    if (!isConfigLoaded || !apiKey) {
-      return null
-    }
-
-    return new AgentApiClient({
-      baseURL: `http://${host}:${port}`,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'X-Api-Key': apiKey
-      }
-    })
-  }, [host, port, apiKey])
-}
+import { useAgentHttpClient } from './useAgentHttpClient'
 
 export const taskLogsKey = (taskId: string) => `/v1/tasks/${taskId}/logs`
 

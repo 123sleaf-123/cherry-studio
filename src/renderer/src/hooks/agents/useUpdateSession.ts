@@ -22,6 +22,7 @@ export const useUpdateSession = (agentId: string | null) => {
       const itemPath = `/agents/${agentId}/sessions/${sessionId}`
 
       try {
+        // Two-variable path causes TypeScript to union-match multiple routes — as any is intentional.
         const result = await dataApiService.patch(itemPath as any, { body: form as any })
         // Refresh the list and the individual session caches
         await Promise.all([invalidate(listPath), invalidate(itemPath)])

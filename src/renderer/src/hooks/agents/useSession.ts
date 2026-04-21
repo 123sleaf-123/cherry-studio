@@ -10,6 +10,7 @@ export const useSession = (agentId: string | null, sessionId: string | null) => 
     isLoading,
     error,
     mutate
+    // Two-variable path causes TypeScript to union-match /agents/:id and /agents/:id/sessions/:sid — as any is intentional.
   } = useQuery(`/agents/${agentId!}/sessions/${sessionId!}` as any, { enabled: !!agentId && !!sessionId })
 
   return {

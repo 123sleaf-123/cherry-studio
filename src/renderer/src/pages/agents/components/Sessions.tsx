@@ -1,10 +1,8 @@
-import { useMultiplePreferences } from '@data/hooks/usePreference'
-import { preferenceService } from '@data/PreferenceService'
-import { AgentApiClient } from '@renderer/api/agent'
 import AddButton from '@renderer/components/AddButton'
 import DraggableVirtualList, { type DraggableVirtualListRef } from '@renderer/components/DraggableList/virtual-list'
 import { cacheService } from '@renderer/data/CacheService'
 import { useCache } from '@renderer/data/hooks/useCache'
+import { useAgentHttpClient } from '@renderer/hooks/agents/useAgentHttpClient'
 import { useCreateDefaultSession } from '@renderer/hooks/agents/useCreateDefaultSession'
 import { useSessions } from '@renderer/hooks/agents/useSessions'
 import { useAppDispatch } from '@renderer/store'
@@ -23,12 +21,6 @@ interface SessionsProps {
   agentId: string
   onSelectItem?: () => void
 }
-
-const AGENT_API_PREFERENCE_KEYS = {
-  host: 'feature.csaas.host',
-  port: 'feature.csaas.port',
-  apiKey: 'feature.csaas.api_key'
-} as const
 
 const LOAD_MORE_THRESHOLD = 100
 const SCROLL_THROTTLE_DELAY = 150
@@ -53,19 +45,7 @@ const Sessions = ({ agentId, onSelectItem }: SessionsProps) => {
   const { createDefaultSession, creatingSession } = useCreateDefaultSession(agentId)
   const listRef = useRef<DraggableVirtualListRef>(null)
 
-  const { host, port, apiKey } = useMultiplePreferences(AGENT_API_PREFERENCE_KEYS)[0]
-
-  const client = useMemo(() => {
-    const isConfigLoaded = Object.values(AGENT_API_PREFERENCE_KEYS).every((key) => preferenceService.isCached(key))
-    if (!isConfigLoaded || !apiKey) return null
-    return new AgentApiClient({
-      baseURL: `http://${host}:${port}`,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'X-Api-Key': apiKey
-      }
-    })
-  }, [host, port, apiKey])
+  const client = useAgentHttpClient()
 
   // Build sessionId → channelType map from channels table
   const [channelTypeMap, setChannelTypeMap] = useState<Record<string, string>>({})

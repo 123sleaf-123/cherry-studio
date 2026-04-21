@@ -1,12 +1,11 @@
 import { cacheService } from '@data/CacheService'
 import { dataApiService } from '@data/DataApiService'
-import { useMutation, useQuery } from '@data/hooks/useDataApi'
+import { useInvalidateCache, useMutation, useQuery } from '@data/hooks/useDataApi'
 import { useCache } from '@renderer/data/hooks/useCache'
 import type { AddAgentForm, CreateAgentResponse, GetAgentResponse } from '@renderer/types'
 import { formatErrorMessageWithPrefix } from '@renderer/utils/error'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSWRConfig } from 'swr'
 
 type Result<T> =
   | {
@@ -20,7 +19,7 @@ type Result<T> =
 
 export const useAgents = () => {
   const { t } = useTranslation()
-  const { mutate: globalMutate } = useSWRConfig()
+  const invalidate = useInvalidateCache()
 
   const { data, isLoading, error, mutate } = useQuery('/agents')
   // Cast to renderer's GetAgentResponse which has the typed configuration schema
@@ -64,13 +63,13 @@ export const useAgents = () => {
           const newId = agents.filter((a) => a.id !== id).find(() => true)?.id
           cacheService.set('agent.active_id', newId ?? null)
         }
-        void globalMutate((key) => Array.isArray(key) && key[0] === '/agents')
+        await invalidate('/agents')
         window.toast.success(t('common.delete_success'))
       } catch (error) {
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.delete.error.failed')))
       }
     },
-    [activeAgentId, agents, globalMutate, t]
+    [activeAgentId, agents, invalidate, t]
   )
 
   const getAgent = useCallback(

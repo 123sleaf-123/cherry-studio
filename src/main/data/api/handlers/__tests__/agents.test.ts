@@ -7,14 +7,17 @@ const {
   getAgentMock,
   updateAgentMock,
   deleteAgentMock,
+  reorderAgentsMock,
   listSessionsMock,
   createSessionMock,
   getSessionMock,
   updateSessionMock,
   deleteSessionMock,
+  reorderSessionsMock,
   listSessionMessagesMock,
   deleteSessionMessageMock,
   listTasksMock,
+  listAllTasksMock,
   createTaskMock,
   getTaskMock,
   updateTaskMock,
@@ -27,14 +30,17 @@ const {
   getAgentMock: vi.fn(),
   updateAgentMock: vi.fn(),
   deleteAgentMock: vi.fn(),
+  reorderAgentsMock: vi.fn(),
   listSessionsMock: vi.fn(),
   createSessionMock: vi.fn(),
   getSessionMock: vi.fn(),
   updateSessionMock: vi.fn(),
   deleteSessionMock: vi.fn(),
+  reorderSessionsMock: vi.fn(),
   listSessionMessagesMock: vi.fn(),
   deleteSessionMessageMock: vi.fn(),
   listTasksMock: vi.fn(),
+  listAllTasksMock: vi.fn(),
   createTaskMock: vi.fn(),
   getTaskMock: vi.fn(),
   updateTaskMock: vi.fn(),
@@ -49,7 +55,8 @@ vi.mock('@main/services/agents/services/AgentService', () => ({
     createAgent: createAgentMock,
     getAgent: getAgentMock,
     updateAgent: updateAgentMock,
-    deleteAgent: deleteAgentMock
+    deleteAgent: deleteAgentMock,
+    reorderAgents: reorderAgentsMock
   }
 }))
 
@@ -59,7 +66,8 @@ vi.mock('@main/services/agents/services/SessionService', () => ({
     createSession: createSessionMock,
     getSession: getSessionMock,
     updateSession: updateSessionMock,
-    deleteSession: deleteSessionMock
+    deleteSession: deleteSessionMock,
+    reorderSessions: reorderSessionsMock
   }
 }))
 
@@ -73,6 +81,7 @@ vi.mock('@main/services/agents/services/SessionMessageService', () => ({
 vi.mock('@main/services/agents/services/TaskService', () => ({
   taskService: {
     listTasks: listTasksMock,
+    listAllTasks: listAllTasksMock,
     createTask: createTaskMock,
     getTask: getTaskMock,
     updateTask: updateTaskMock,
@@ -364,6 +373,59 @@ describe('agentHandlers', () => {
       ).resolves.toBeUndefined()
 
       expect(deleteTaskMock).toHaveBeenCalledWith(AGENT_ID, TASK_ID)
+    })
+  })
+
+  // ── /agents/order ────────────────────────────────────────────────────────
+
+  describe('/agents/order', () => {
+    it('delegates PUT to agentService.reorderAgents', async () => {
+      reorderAgentsMock.mockResolvedValueOnce(undefined)
+
+      const result = await agentHandlers['/agents/order'].PUT({
+        body: { orderedIds: [AGENT_ID] }
+      } as never)
+
+      expect(reorderAgentsMock).toHaveBeenCalledWith([AGENT_ID])
+      expect(result).toBeUndefined()
+    })
+  })
+
+  // ── /agents/:id/sessions/order ───────────────────────────────────────────
+
+  describe('/agents/:id/sessions/order', () => {
+    it('delegates PUT to sessionService.reorderSessions', async () => {
+      reorderSessionsMock.mockResolvedValueOnce(undefined)
+
+      const result = await agentHandlers['/agents/:id/sessions/order'].PUT({
+        params: { id: AGENT_ID },
+        body: { orderedIds: [SESSION_ID] }
+      } as never)
+
+      expect(reorderSessionsMock).toHaveBeenCalledWith(AGENT_ID, [SESSION_ID])
+      expect(result).toBeUndefined()
+    })
+  })
+
+  // ── /tasks ───────────────────────────────────────────────────────────────
+
+  describe('/tasks', () => {
+    it('delegates GET to taskService.listAllTasks with default pagination', async () => {
+      listAllTasksMock.mockResolvedValueOnce({ tasks: [mockTask], total: 1 })
+
+      const result = await agentHandlers['/tasks'].GET({ query: {} } as never)
+
+      expect(listAllTasksMock).toHaveBeenCalledWith({ limit: 50, offset: 0 })
+      expect(result).toMatchObject({ items: [mockTask], total: 1, page: 1 })
+    })
+
+    it('delegates GET with explicit pagination params', async () => {
+      listAllTasksMock.mockResolvedValueOnce({ tasks: [mockTask], total: 10 })
+
+      const result = await agentHandlers['/tasks'].GET({ query: { page: 2, limit: 5 } } as never)
+
+      expect(listAllTasksMock).toHaveBeenCalledWith({ limit: 5, offset: 5 })
+      expect(result).toMatchObject({ items: [mockTask], total: 10, page: 2 })
     })
   })
 
