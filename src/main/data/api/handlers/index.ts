@@ -16,6 +16,7 @@ import type { ApiImplementation } from '@shared/data/api/apiTypes'
 
 import { agentHandlers } from './agents'
 import { assistantHandlers } from './assistants'
+import { channelHandlers } from './channels'
 import { fileProcessingHandlers } from './fileProcessing'
 import { knowledgeHandlers } from './knowledges'
 import { mcpServerHandlers } from './mcpServers'
@@ -38,6 +39,7 @@ import { translateHandlers } from './translate'
 export const apiHandlers: ApiImplementation = {
   ...agentHandlers,
   ...assistantHandlers,
+  ...channelHandlers,
   ...fileProcessingHandlers,
   ...topicHandlers,
   ...messageHandlers,

@@ -1,52 +1,63 @@
+import { dataApiService } from '@data/DataApiService'
+import { useInvalidateCache, useQuery } from '@data/hooks/useDataApi'
 import { useCallback } from 'react'
-import useSWR from 'swr'
-
-import { useAgentHttpClient } from './useAgentHttpClient'
 
 export const useChannels = (type?: string) => {
-  const client = useAgentHttpClient()
+  const invalidate = useInvalidateCache()
 
-  const key = client ? `${client.channelPaths.base}?type=${type ?? ''}` : null
+  const { data, isLoading, error, mutate } = useQuery('/channels', {
+    query: type ? { type } : undefined
+  })
 
-  const fetcher = useCallback(async () => {
-    if (!client) throw new Error('Agent API client unavailable')
-    const result = await client.listChannels(type ? { type } : undefined)
-    return result.data
-  }, [client, type])
-
-  const { data, error, isLoading, mutate } = useSWR(key, fetcher)
+  const channels = data?.items ?? []
 
   const createChannel = useCallback(
     async (channelData: Record<string, unknown>) => {
-      if (!client) throw new Error('Agent API client unavailable')
-      const result = await client.createChannel(channelData)
-      void mutate((prev) => [...(prev ?? []), result], false)
+      const result = await dataApiService.post('/channels', {
+        body: {
+          type: channelData.type as string,
+          name: channelData.name as string,
+          config: (channelData.config ?? {}) as Record<string, unknown>,
+          isActive: ((channelData.is_active ?? channelData.isActive) as boolean | undefined) ?? true,
+          agentId: (channelData.agent_id ?? channelData.agentId) as string | undefined,
+          permissionMode: (channelData.permission_mode ?? channelData.permissionMode) as string | undefined
+        }
+      })
+      await invalidate('/channels')
       return result
     },
-    [client, mutate]
+    [invalidate]
   )
 
   const updateChannel = useCallback(
     async (id: string, updates: Record<string, unknown>) => {
-      if (!client) throw new Error('Agent API client unavailable')
-      const result = await client.updateChannel(id, updates)
-      void mutate((prev) => prev?.map((ch) => (ch.id === id ? result : ch)) ?? [], false)
+      // Single-variable path: interpolate ID directly, cast to satisfy ConcreteApiPaths constraint
+      const result = await dataApiService.patch(`/channels/${id}` as '/channels/:id', {
+        body: {
+          name: updates.name as string | undefined,
+          config: updates.config as Record<string, unknown> | undefined,
+          isActive: (updates.is_active ?? updates.isActive) as boolean | undefined,
+          agentId: (updates.agent_id ?? updates.agentId) as string | null | undefined,
+          permissionMode: (updates.permission_mode ?? updates.permissionMode) as string | null | undefined
+        }
+      })
+      await invalidate('/channels')
       return result
     },
-    [client, mutate]
+    [invalidate]
   )
 
   const deleteChannel = useCallback(
     async (id: string) => {
-      if (!client) throw new Error('Agent API client unavailable')
-      await client.deleteChannel(id)
-      void mutate((prev) => prev?.filter((ch) => ch.id !== id) ?? [], false)
+      // Single-variable path: interpolate ID directly, cast to satisfy ConcreteApiPaths constraint
+      await dataApiService.delete(`/channels/${id}` as '/channels/:id')
+      await invalidate('/channels')
     },
-    [client, mutate]
+    [invalidate]
   )
 
   return {
-    channels: data,
+    channels,
     error,
     isLoading,
     mutate,

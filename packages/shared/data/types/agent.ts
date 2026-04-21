@@ -132,6 +132,26 @@ export interface ScheduledTaskEntity {
 export type ListTasksResponse = OffsetPaginationResponse<ScheduledTaskEntity>
 
 // ============================================================================
+// Channel entity
+// ============================================================================
+
+export interface AgentChannelEntity {
+  id: string
+  type: string
+  name: string
+  agentId: string | null
+  sessionId: string | null
+  config: Record<string, unknown>
+  isActive: boolean
+  activeChatIds: string[] | null
+  permissionMode: string | null
+  createdAt: number | null
+  updatedAt: number | null
+}
+
+export type ListChannelsResponse = OffsetPaginationResponse<AgentChannelEntity>
+
+// ============================================================================
 // Skill entity
 // ============================================================================
 

@@ -22,6 +22,7 @@
 import type { AssertValidSchemas } from '../apiTypes'
 import type { AgentSchemas } from './agents'
 import type { AssistantSchemas } from './assistants'
+import type { ChannelSchemas } from './channels'
 import type { FileProcessingSchemas } from './fileProcessing'
 import type { KnowledgeSchemas } from './knowledges'
 import type { MCPServerSchemas } from './mcpServers'
@@ -60,5 +61,6 @@ export type ApiSchemas = AssertValidSchemas<
     MiniappSchemas &
     AssistantSchemas &
     TagSchemas &
-    AgentSchemas
+    AgentSchemas &
+    ChannelSchemas
 >
