@@ -117,7 +117,7 @@ export interface UseQueryResult<TPath extends ApiPath> {
   isLoading: boolean
   isRefreshing: boolean
   error?: Error
-  refetch: () => void
+  refetch: () => Promise<ResponseForPath<TPath, 'GET'> | undefined>
   mutate: KeyedMutator<ResponseForPath<TPath, 'GET'>>
 }
 

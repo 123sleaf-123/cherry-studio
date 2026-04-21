@@ -14,6 +14,11 @@
  *   DO NOT call TagService.getTagsByEntity per entity. JOIN `entity_tag` + `tag` inline
  *   in the owning entity's query (single round-trip). That is the fastest and correct
  *   pattern; TagService reads are scoped to tag-management flows.
+ * - When inline-JOINing `tag` rows, call `ensureTagTimestamp` on the joined
+ *   `createdAt` / `updatedAt` columns so your service's null-policy matches
+ *   `rowToTag` (reject incomplete tag rows with an internal error rather than
+ *   papering over with synthetic `Date.now()`). Ordering within a single entity
+ *   should be `asc(tag.name)` to stay consistent with `getTagsByEntity`.
  *
  * IMPORTANT: `entity_tag` is polymorphic and has no FK to assistant/topic/session tables.
  * Callers deleting tagged entities must invoke `removeEntityTags()` as part of their delete workflow.
@@ -35,7 +40,13 @@ const logger = loggerService.withContext('DataApi:TagService')
 type TagRow = typeof tagTable.$inferSelect
 type EntityBinding = SetTagEntitiesDto['entities'][number]
 
-function ensureTagTimestamp(
+/**
+ * Shared null-timestamp guard for Tag rows. Exported so owning services that
+ * read tags via inline JOIN (e.g. `AssistantService.getTagsByAssistantIds`)
+ * apply the same "reject incomplete rows" policy as `rowToTag` does here —
+ * keeps behaviour consistent no matter which endpoint surfaces the tag.
+ */
+export function ensureTagTimestamp(
   timestamp: number | null | undefined,
   field: 'createdAt' | 'updatedAt',
   tagId: string
@@ -234,37 +245,62 @@ export class TagService {
   async syncEntityTags(entityType: TaggableEntityType, entityId: string, dto: SyncEntityTagsDto): Promise<void> {
     const desiredTagIds = [...new Set(dto.tagIds)]
 
-    await this.db.transaction(async (tx) => {
-      const existing = await tx
-        .select({ tagId: entityTagTable.tagId })
-        .from(entityTagTable)
-        .where(and(eq(entityTagTable.entityType, entityType), eq(entityTagTable.entityId, entityId)))
-
-      const existingIds = new Set(existing.map((row) => row.tagId))
-      const desiredIds = new Set(desiredTagIds)
-
-      const toRemove = existing.filter((row) => !desiredIds.has(row.tagId)).map((row) => row.tagId)
-      const toAdd = desiredTagIds.filter((tagId) => !existingIds.has(tagId))
-
-      if (toRemove.length > 0) {
-        await tx
-          .delete(entityTagTable)
-          .where(
-            and(
-              eq(entityTagTable.entityType, entityType),
-              eq(entityTagTable.entityId, entityId),
-              inArray(entityTagTable.tagId, toRemove)
-            )
-          )
-      }
-
-      if (toAdd.length > 0) {
-        await this.assertTagsExist(tx, toAdd)
-        await tx.insert(entityTagTable).values(toAdd.map((tagId) => ({ entityType, entityId, tagId })))
-      }
-    })
+    await this.db.transaction((tx) => this.syncEntityTagsWithin(tx, entityType, entityId, desiredTagIds))
 
     logger.info('Synced entity tags', { entityType, entityId, tagCount: desiredTagIds.length })
+  }
+
+  /**
+   * Tx-aware diff-sync of entity_tag bindings for an entity.
+   *
+   * Owning services (AssistantService, …) call this from inside their own
+   * transaction so the assistant row write and its tag binding land atomically.
+   * The public `syncEntityTags` wraps this in its own transaction.
+   *
+   * - `tagIds` is de-duplicated by the caller (e.g. via `new Set`).
+   * - Missing tag rows cause `NOT_FOUND` to roll the whole tx back.
+   *
+   * **Logging contract**: this helper emits NO log — the owning service's own
+   * "Updated / Created assistant" log line already records that tags changed
+   * (via `Object.keys(dto)`), and double-logging from here would confuse
+   * per-operation log correlation. The public `syncEntityTags` wrapper keeps
+   * its "Synced entity tags" log for direct-entry PUT /tags/entities calls.
+   */
+  async syncEntityTagsWithin(
+    tx: Pick<DbType, 'select' | 'insert' | 'delete'>,
+    entityType: TaggableEntityType,
+    entityId: string,
+    tagIds: string[]
+  ): Promise<void> {
+    const desiredTagIds = [...new Set(tagIds)]
+
+    const existing = await tx
+      .select({ tagId: entityTagTable.tagId })
+      .from(entityTagTable)
+      .where(and(eq(entityTagTable.entityType, entityType), eq(entityTagTable.entityId, entityId)))
+
+    const existingIds = new Set(existing.map((row) => row.tagId))
+    const desiredIds = new Set(desiredTagIds)
+
+    const toRemove = existing.filter((row) => !desiredIds.has(row.tagId)).map((row) => row.tagId)
+    const toAdd = desiredTagIds.filter((tagId) => !existingIds.has(tagId))
+
+    if (toRemove.length > 0) {
+      await tx
+        .delete(entityTagTable)
+        .where(
+          and(
+            eq(entityTagTable.entityType, entityType),
+            eq(entityTagTable.entityId, entityId),
+            inArray(entityTagTable.tagId, toRemove)
+          )
+        )
+    }
+
+    if (toAdd.length > 0) {
+      await this.assertTagsExist(tx, toAdd)
+      await tx.insert(entityTagTable).values(toAdd.map((tagId) => ({ entityType, entityId, tagId })))
+    }
   }
 
   /**
