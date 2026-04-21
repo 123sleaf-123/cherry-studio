@@ -2,7 +2,7 @@ import AddButton from '@renderer/components/AddButton'
 import DraggableVirtualList, { type DraggableVirtualListRef } from '@renderer/components/DraggableList/virtual-list'
 import { cacheService } from '@renderer/data/CacheService'
 import { useCache } from '@renderer/data/hooks/useCache'
-import { useAgentHttpClient } from '@renderer/hooks/agents/useAgentHttpClient'
+import { useChannels } from '@renderer/hooks/agents/useChannels'
 import { useCreateDefaultSession } from '@renderer/hooks/agents/useCreateDefaultSession'
 import { useSessions } from '@renderer/hooks/agents/useSessions'
 import { useAppDispatch } from '@renderer/store'
@@ -12,7 +12,7 @@ import { formatErrorMessage } from '@renderer/utils/error'
 import { Alert, Button, Spin } from 'antd'
 import { motion } from 'framer-motion'
 import { throttle } from 'lodash'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import SessionItem from './SessionItem'
@@ -45,28 +45,18 @@ const Sessions = ({ agentId, onSelectItem }: SessionsProps) => {
   const { createDefaultSession, creatingSession } = useCreateDefaultSession(agentId)
   const listRef = useRef<DraggableVirtualListRef>(null)
 
-  const client = useAgentHttpClient()
+  const { channels } = useChannels()
 
   // Build sessionId → channelType map from channels table
-  const [channelTypeMap, setChannelTypeMap] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (!client) {
-      return
+  const channelTypeMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const ch of channels) {
+      if (ch.sessionId) {
+        map[ch.sessionId] = ch.type
+      }
     }
-
-    client
-      .listChannels({ agent_id: agentId })
-      .then(({ data }) => {
-        const map: Record<string, string> = {}
-        for (const ch of data) {
-          if (ch.sessionId) {
-            map[ch.sessionId] = ch.type
-          }
-        }
-        setChannelTypeMap(map)
-      })
-      .catch(() => {})
-  }, [client, agentId, sessions])
+    return map
+  }, [channels])
 
   // Use refs to always read the latest values inside the throttled handler,
   // avoiding stale closures caused by recreating the throttle on each render.

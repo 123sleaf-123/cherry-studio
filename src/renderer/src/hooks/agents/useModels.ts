@@ -1,3 +1,6 @@
+// TODO: migrate to a regular IPC handler and remove HTTP dependency.
+// GET /v1/models queries live AI providers (OpenAI, Anthropic, etc.) — not SQLite-backed,
+// so DataApi does not apply. Use ipcMain.handle('agent:list-models', ...) instead.
 import type { ApiModel, ApiModelsFilter } from '@renderer/types'
 import { merge } from 'lodash'
 import { useCallback } from 'react'

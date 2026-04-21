@@ -7,8 +7,6 @@ import { LONG_POLL_TIMEOUT_MS } from './config/timeouts'
 import { authMiddleware } from './middleware/auth'
 import { errorHandler } from './middleware/error'
 import { setupOpenAPIDocumentation } from './middleware/openapi'
-import { agentsRoutes } from './routes/agents'
-import { channelsRouter } from './routes/channels'
 import { chatRoutes } from './routes/chat'
 import { clawMcpRoutes } from './routes/claw-mcp'
 import { knowledgeRoutes } from './routes/knowledge'
@@ -139,10 +137,6 @@ export function createApp(): express.Application {
         messages_provider: 'POST /:provider/v1/messages',
         mcps: 'GET /v1/mcps',
         mcp_server: 'GET /v1/mcps/:server_id',
-        agents: 'GET /v1/agents',
-        channels: 'GET /v1/channels',
-        agent_sessions: 'GET /v1/agents/:agentId/sessions',
-        session_messages: 'GET /v1/agents/:agentId/sessions/:sessionId/messages',
         knowledge_bases: 'GET /v1/knowledge-bases',
         knowledge_search: 'POST /v1/knowledge-bases/search'
       }
@@ -163,8 +157,6 @@ export function createApp(): express.Application {
   apiRouter.use('/mcps', mcpRoutes)
   apiRouter.use('/messages', extendMessagesTimeout, messagesRoutes)
   apiRouter.use('/models', modelsRoutes)
-  apiRouter.use('/agents', agentsRoutes)
-  apiRouter.use('/channels', channelsRouter)
   apiRouter.use('/tasks', tasksRouter)
   apiRouter.use('/claw', clawMcpRoutes)
   apiRouter.use('/knowledge-bases', knowledgeRoutes)
