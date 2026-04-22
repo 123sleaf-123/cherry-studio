@@ -35,6 +35,8 @@ import type { CreateTagDto, SetTagEntitiesDto, SyncEntityTagsDto, UpdateTagDto }
 import type { Tag, TaggableEntityType } from '@shared/data/types/tag'
 import { and, asc, eq, inArray, or, type SQL } from 'drizzle-orm'
 
+import { timestampToISO } from './utils/rowMappers'
+
 const logger = loggerService.withContext('DataApi:TagService')
 
 type TagRow = typeof tagTable.$inferSelect
@@ -92,15 +94,12 @@ function buildEntityBindingCondition(entities: Array<{ entityType: string; entit
  * Convert database row to Tag entity
  */
 function rowToTag(row: TagRow): Tag {
-  const createdAt = ensureTagTimestamp(row.createdAt, 'createdAt', row.id)
-  const updatedAt = ensureTagTimestamp(row.updatedAt, 'updatedAt', row.id)
-
   return {
     id: row.id,
     name: row.name,
     color: row.color ?? null,
-    createdAt: new Date(createdAt).toISOString(),
-    updatedAt: new Date(updatedAt).toISOString()
+    createdAt: timestampToISO(row.createdAt),
+    updatedAt: timestampToISO(row.updatedAt)
   }
 }
 
