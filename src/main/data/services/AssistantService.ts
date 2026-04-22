@@ -20,7 +20,7 @@ import type { UniqueModelId } from '@shared/data/types/model'
 import type { Tag } from '@shared/data/types/tag'
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm'
 
-import { ensureTagTimestamp, tagService } from './TagService'
+import { tagService } from './TagService'
 import { timestampToISO } from './utils/rowMappers'
 
 const logger = loggerService.withContext('DataApi:AssistantService')
@@ -220,18 +220,12 @@ export class AssistantDataService {
       .orderBy(asc(entityTagTable.entityId), asc(tagTable.name))
 
     for (const row of rows) {
-      // Apply the same null-timestamp policy as TagService.rowToTag:
-      // reject incomplete Tag rows with an internal error rather than papering
-      // over with synthetic `Date.now()` values. Assistant-scoped reads stay
-      // consistent with direct `/tags` reads.
-      const createdAt = ensureTagTimestamp(row.tagCreatedAt, 'createdAt', row.tagId)
-      const updatedAt = ensureTagTimestamp(row.tagUpdatedAt, 'updatedAt', row.tagId)
       tagMap.get(row.assistantId)?.push({
         id: row.tagId,
         name: row.tagName,
         color: row.tagColor ?? null,
-        createdAt: new Date(createdAt).toISOString(),
-        updatedAt: new Date(updatedAt).toISOString()
+        createdAt: timestampToISO(row.tagCreatedAt),
+        updatedAt: timestampToISO(row.tagUpdatedAt)
       })
     }
 

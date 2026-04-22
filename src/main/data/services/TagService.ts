@@ -13,12 +13,8 @@
  * - For READ paths that only need "entity X with its tags" (lists, cards, badges),
  *   DO NOT call TagService.getTagsByEntity per entity. JOIN `entity_tag` + `tag` inline
  *   in the owning entity's query (single round-trip). That is the fastest and correct
- *   pattern; TagService reads are scoped to tag-management flows.
- * - When inline-JOINing `tag` rows, call `ensureTagTimestamp` on the joined
- *   `createdAt` / `updatedAt` columns so your service's null-policy matches
- *   `rowToTag` (reject incomplete tag rows with an internal error rather than
- *   papering over with synthetic `Date.now()`). Ordering within a single entity
- *   should be `asc(tag.name)` to stay consistent with `getTagsByEntity`.
+ *   pattern; TagService reads are scoped to tag-management flows. Order tags within
+ *   a single entity by `asc(tag.name)` to stay consistent with `getTagsByEntity`.
  *
  * IMPORTANT: `entity_tag` is polymorphic and has no FK to assistant/topic/session tables.
  * Callers deleting tagged entities must invoke `removeEntityTags()` as part of their delete workflow.
@@ -41,25 +37,6 @@ const logger = loggerService.withContext('DataApi:TagService')
 
 type TagRow = typeof tagTable.$inferSelect
 type EntityBinding = SetTagEntitiesDto['entities'][number]
-
-/**
- * Shared null-timestamp guard for Tag rows. Exported so owning services that
- * read tags via inline JOIN (e.g. `AssistantService.getTagsByAssistantIds`)
- * apply the same "reject incomplete rows" policy as `rowToTag` does here —
- * keeps behaviour consistent no matter which endpoint surfaces the tag.
- */
-export function ensureTagTimestamp(
-  timestamp: number | null | undefined,
-  field: 'createdAt' | 'updatedAt',
-  tagId: string
-): number {
-  if (timestamp == null) {
-    logger.warn('Tag row has null timestamp', { id: tagId, field })
-    throw DataApiErrorFactory.internal(new Error(`Tag row '${tagId}' is missing ${field}`), 'TagService.rowToTag')
-  }
-
-  return timestamp
-}
 
 function entityBindingKey(entity: { entityType: string; entityId: string }): string {
   return `${entity.entityType}:${entity.entityId}`
