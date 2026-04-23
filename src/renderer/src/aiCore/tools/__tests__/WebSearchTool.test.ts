@@ -6,7 +6,7 @@ const loggerWarnMock = vi.fn()
 
 vi.mock('@renderer/services/WebSearchService', () => ({
   webSearchService: {
-    getWebSearchProvider: getWebSearchProviderMock,
+    getWebSearchProviderAsync: getWebSearchProviderMock,
     processWebsearch: processWebsearchMock
   }
 }))
@@ -27,7 +27,7 @@ describe('webSearchToolWithPreExtractedKeywords', () => {
   })
 
   it('returns an empty result when the configured provider is unavailable', async () => {
-    getWebSearchProviderMock.mockReturnValue(undefined)
+    getWebSearchProviderMock.mockResolvedValue(undefined)
 
     const { webSearchToolWithPreExtractedKeywords } = await import('../WebSearchTool')
     const tool = webSearchToolWithPreExtractedKeywords('tavily', { question: ['latest cherry studio'] }, 'request-1')

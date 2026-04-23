@@ -20,8 +20,6 @@ export const webSearchToolWithPreExtractedKeywords = (
   },
   requestId: string
 ) => {
-  const webSearchProvider = webSearchService.getWebSearchProvider(webSearchProviderId)
-
   return tool({
     description: `Web search tool for finding current information, news, and real-time data from the internet.
 
@@ -57,6 +55,8 @@ You can use this tool as-is to search with the prepared queries, or provide addi
         query: '',
         results: []
       }
+
+      const webSearchProvider = await webSearchService.getWebSearchProviderAsync(webSearchProviderId)
 
       if (!webSearchProvider) {
         logger.warn('Skip web search because provider is unavailable', {
