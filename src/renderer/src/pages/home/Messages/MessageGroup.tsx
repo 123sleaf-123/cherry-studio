@@ -47,10 +47,10 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
 
   // 对于单模型消息，采用简单的样式，避免 overflow 影响内部的 sticky 效果
   // User branch variants always render as a folded stack so only the selected version stays visible.
-  const shouldForceFoldStyle = isUserVersionGroup || messageLength < 2
+  const requiresFoldStyle = isUserVersionGroup || messageLength < 2
   const multiModelMessageStyle = useMemo(
-    () => (shouldForceFoldStyle ? 'fold' : _multiModelMessageStyle),
-    [_multiModelMessageStyle, shouldForceFoldStyle]
+    () => (requiresFoldStyle ? 'fold' : _multiModelMessageStyle),
+    [_multiModelMessageStyle, requiresFoldStyle]
   )
 
   const isGrid = multiModelMessageStyle === 'grid'

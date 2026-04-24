@@ -108,7 +108,7 @@ const syncTopicMessagesToDB = async (topicId: string, getState: () => RootState)
   await db.topics.update(topicId, { messages: finalMessagesToSave })
 }
 
-const cloneMessageBlockForBranch = (block: MessageBlock, messageId: string, now: string): MessageBlock => ({
+const createBranchBlockFromTemplate = (block: MessageBlock, messageId: string, now: string): MessageBlock => ({
   ...block,
   id: uuid(),
   messageId,
@@ -1372,7 +1372,7 @@ export const resendUserMessageWithEditThunk =
       const branchRootId = originalMessage.branchRootId ?? originalMessage.id
       const now = new Date().toISOString()
       const branchedMessageId = uuid()
-      const clonedBlocks = editedBlocks.map((block) => cloneMessageBlockForBranch(block, branchedMessageId, now))
+      const clonedBlocks = editedBlocks.map((block) => createBranchBlockFromTemplate(block, branchedMessageId, now))
       const files = clonedBlocks
         .filter((block): block is FileMessageBlock | ImageMessageBlock => {
           return block.type === MessageBlockType.FILE || block.type === MessageBlockType.IMAGE

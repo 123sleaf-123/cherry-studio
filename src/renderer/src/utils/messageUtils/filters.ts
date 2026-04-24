@@ -19,15 +19,16 @@ type ResolvedMessageMeta = {
 }
 
 const getParentKey = (parentMessageId?: string) => parentMessageId ?? ROOT_PARENT_KEY
-const inferParentMessageId = (message: Message, previousMessageId?: string) =>
+const getInferredParentMessageId = (message: Message, previousMessageId?: string) =>
   message.role === 'assistant' ? message.askId : previousMessageId
+const getBranchGroupKey = (parentKey: string, branchRootId: string) => `${parentKey}::${branchRootId}`
 
 const resolveMessageMeta = (messages: Message[]) => {
   const resolved = new Map<string, ResolvedMessageMeta>()
   let previousMessageId: string | undefined
 
   messages.forEach((message) => {
-    const parentMessageId = message.parentMessageId ?? inferParentMessageId(message, previousMessageId)
+    const parentMessageId = message.parentMessageId ?? getInferredParentMessageId(message, previousMessageId)
     const branchRootId = message.role === 'user' ? message.branchRootId ?? message.id : undefined
 
     resolved.set(message.id, {
@@ -108,7 +109,7 @@ const collectBranchVisibility = (messages: Message[]) => {
 
     const branchRootId = meta?.branchRootId ?? message.id
     const parentKey = getParentKey(meta?.parentMessageId)
-    const groupKey = JSON.stringify([parentKey, branchRootId])
+    const groupKey = getBranchGroupKey(parentKey, branchRootId)
 
     if (!userGroups.has(groupKey)) {
       userGroups.set(groupKey, {
