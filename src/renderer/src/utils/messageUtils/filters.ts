@@ -77,8 +77,8 @@ export const getMessageGroupKey = (message: Message): string => {
 
 /**
  * Builds the active inline-branch view for a topic.
- * `activeMessageIds` contains only the currently selected path that should be sent back to the model.
- * `visibleMessageIds` additionally keeps sibling versions in active groups so the UI can render branch selectors.
+ * `activeMessageIds` contains only the selected branch path that should be sent back to the model.
+ * `visibleMessageIds` additionally keeps sibling versions inside active groups so the UI can render branch selectors.
  */
 const collectBranchVisibility = (messages: Message[]) => {
   const resolved = resolveMessageMeta(messages)
@@ -130,6 +130,7 @@ const collectBranchVisibility = (messages: Message[]) => {
   const activeAssistantAskIds = new Set<string>()
   const visitedParents = new Set<string>()
 
+  // Walk the conversation tree from the active parent node and keep only the selected child branch.
   const walk = (parentMessageId?: string) => {
     const parentKey = getParentKey(parentMessageId)
     if (visitedParents.has(parentKey)) {

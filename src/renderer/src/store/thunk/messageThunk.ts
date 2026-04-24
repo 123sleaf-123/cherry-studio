@@ -1385,18 +1385,16 @@ export const resendUserMessageWithEditThunk =
         (message) => message.role === 'user' && (message.branchRootId ?? message.id) === branchRootId
       )
 
-      siblingMessages.forEach((message) => {
-        if (!message.foldSelected) {
-          return
-        }
+      const selectedSiblingMessage = siblingMessages.find((message) => message.foldSelected)
+      if (selectedSiblingMessage) {
         dispatch(
           newMessagesActions.updateMessage({
             topicId,
-            messageId: message.id,
+            messageId: selectedSiblingMessage.id,
             updates: { foldSelected: false }
           })
         )
-      })
+      }
 
       const branchedUserMessage: Message = {
         ...originalMessage,

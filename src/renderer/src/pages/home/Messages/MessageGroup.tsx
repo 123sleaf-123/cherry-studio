@@ -43,7 +43,6 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
   const [_multiModelMessageStyle, setMultiModelMessageStyle] = useState<MultiModelMessageStyle>(
     messages[0].multiModelMessageStyle || multiModelMessageStyleSetting
   )
-  const [selectedIndex, setSelectedIndex] = useState(messageLength - 1)
 
   // 对于单模型消息，采用简单的样式，避免 overflow 影响内部的 sticky 效果
   // User branch variants always render as a folded stack so only the selected version stays visible.
@@ -63,10 +62,9 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
     }
     return messages[0]?.id
   }, [messages])
-
-  useEffect(() => {
+  const selectedIndex = useMemo(() => {
     const nextSelectedIndex = messages.findIndex((message) => message.id === selectedMessageId)
-    setSelectedIndex(nextSelectedIndex === -1 ? 0 : nextSelectedIndex)
+    return nextSelectedIndex === -1 ? 0 : nextSelectedIndex
   }, [messages, selectedMessageId])
 
   const setSelectedMessage = useCallback(
@@ -121,8 +119,6 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
 
       // 如果找到消息且不是当前选中的索引，则切换标签
       if (targetIndex !== -1 && targetIndex !== selectedIndex) {
-        setSelectedIndex(targetIndex)
-
         // 使用setSelectedMessage函数来切换标签，这是处理foldSelected的关键
         const targetMessage = messages[targetIndex]
         if (targetMessage) {
@@ -300,7 +296,7 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
         {isGrouped && (
           <VersionNavigator>
             <VersionButton
-              aria-label="Previous version"
+              aria-label="Previous message version"
               type="button"
               onClick={() => selectByOffset(-1)}
               disabled={messageLength <= 1}>
@@ -310,7 +306,7 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
               {selectedIndex + 1}/{messageLength}
             </VersionCounter>
             <VersionButton
-              aria-label="Next version"
+              aria-label="Next message version"
               type="button"
               onClick={() => selectByOffset(1)}
               disabled={messageLength <= 1}>
