@@ -46,10 +46,11 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
   const [selectedIndex, setSelectedIndex] = useState(messageLength - 1)
 
   // 对于单模型消息，采用简单的样式，避免 overflow 影响内部的 sticky 效果
-  const shouldUseFoldStyle = isUserVersionGroup || messageLength < 2
+  // User branch variants always render as a folded stack so only the selected version stays visible.
+  const shouldForceFoldStyle = isUserVersionGroup || messageLength < 2
   const multiModelMessageStyle = useMemo(
-    () => (shouldUseFoldStyle ? 'fold' : _multiModelMessageStyle),
-    [_multiModelMessageStyle, shouldUseFoldStyle]
+    () => (shouldForceFoldStyle ? 'fold' : _multiModelMessageStyle),
+    [_multiModelMessageStyle, shouldForceFoldStyle]
   )
 
   const isGrid = multiModelMessageStyle === 'grid'

@@ -19,7 +19,7 @@ type ResolvedMessageMeta = {
 }
 
 const getParentKey = (parentMessageId?: string) => parentMessageId ?? ROOT_PARENT_KEY
-const getFallbackParentMessageId = (message: Message, previousMessageId?: string) =>
+const inferParentMessageId = (message: Message, previousMessageId?: string) =>
   message.role === 'assistant' ? message.askId : previousMessageId
 
 const resolveMessageMeta = (messages: Message[]) => {
@@ -27,7 +27,7 @@ const resolveMessageMeta = (messages: Message[]) => {
   let previousMessageId: string | undefined
 
   messages.forEach((message) => {
-    const parentMessageId = message.parentMessageId ?? getFallbackParentMessageId(message, previousMessageId)
+    const parentMessageId = message.parentMessageId ?? inferParentMessageId(message, previousMessageId)
     const branchRootId = message.role === 'user' ? message.branchRootId ?? message.id : undefined
 
     resolved.set(message.id, {
@@ -41,6 +41,10 @@ const resolveMessageMeta = (messages: Message[]) => {
   return resolved
 }
 
+/**
+ * Selects the active message inside a grouped branch.
+ * Priority is: explicit `foldSelected`, then `useful` for assistant groups, then the latest user version.
+ */
 export const getSelectedMessageInGroup = (messages: Message[]): Message | undefined => {
   if (messages.length === 0) {
     return undefined
@@ -70,6 +74,11 @@ export const getMessageGroupKey = (message: Message): string => {
   return `user:${message.branchRootId ?? message.id}`
 }
 
+/**
+ * Builds the active inline-branch view for a topic.
+ * `activeMessageIds` contains only the currently selected path that should be sent back to the model.
+ * `visibleMessageIds` additionally keeps sibling versions in active groups so the UI can render branch selectors.
+ */
 const collectBranchVisibility = (messages: Message[]) => {
   const resolved = resolveMessageMeta(messages)
   const userGroups = new Map<
@@ -99,7 +108,7 @@ const collectBranchVisibility = (messages: Message[]) => {
 
     const branchRootId = meta?.branchRootId ?? message.id
     const parentKey = getParentKey(meta?.parentMessageId)
-    const groupKey = `${parentKey}:${branchRootId}`
+    const groupKey = JSON.stringify([parentKey, branchRootId])
 
     if (!userGroups.has(groupKey)) {
       userGroups.set(groupKey, {
