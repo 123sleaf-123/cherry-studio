@@ -22,6 +22,7 @@ import { saveMessageAndBlocksToDB, updateMessageAndBlocksThunk } from '@renderer
 import type { Assistant, Topic } from '@renderer/types'
 import type { MessageBlock } from '@renderer/types/newMessage'
 import { type Message, MessageBlockType } from '@renderer/types/newMessage'
+import { getMessageGroupKey, getVisibleMessagesForDisplay } from '@renderer/utils/messageUtils/filters'
 import {
   captureScrollableAsBlob,
   captureScrollableAsDataURL,
@@ -67,6 +68,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const messages = useTopicMessages(topic.id)
+  const visibleMessages = useMemo(() => getVisibleMessagesForDisplay(messages), [messages])
   const { displayCount, clearTopicMessages, deleteMessage, createTopicBranch } = useMessageOperations(topic)
   const { setTimeoutTimer } = useTimer()
 
@@ -88,10 +90,10 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
   }, [])
 
   useEffect(() => {
-    const newDisplayMessages = computeDisplayMessages(messages, 0, displayCount)
+    const newDisplayMessages = computeDisplayMessages(visibleMessages, 0, displayCount)
     setDisplayMessages(newDisplayMessages)
-    setHasMore(messages.length > displayCount)
-  }, [messages, displayCount])
+    setHasMore(visibleMessages.length > displayCount)
+  }, [visibleMessages, displayCount])
 
   // NOTE: 如果设置为平滑滚动会导致滚动条无法跟随生成的新消息保持在底部位置
   const scrollToBottom = useCallback(() => {
@@ -254,18 +256,18 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
 
     setIsLoadingMore(true)
     setTimeoutTimer(
-      'loadMoreMessages',
-      () => {
-        const currentLength = displayMessages.length
-        const newMessages = computeDisplayMessages(messages, currentLength, LOAD_MORE_COUNT)
+        'loadMoreMessages',
+        () => {
+          const currentLength = displayMessages.length
+          const newMessages = computeDisplayMessages(visibleMessages, currentLength, LOAD_MORE_COUNT)
 
-        setDisplayMessages((prev) => [...prev, ...newMessages])
-        setHasMore(currentLength + LOAD_MORE_COUNT < messages.length)
-        setIsLoadingMore(false)
-      },
-      300
-    )
-  }, [displayMessages.length, hasMore, isLoadingMore, messages, setTimeoutTimer])
+          setDisplayMessages((prev) => [...prev, ...newMessages])
+          setHasMore(currentLength + LOAD_MORE_COUNT < visibleMessages.length)
+          setIsLoadingMore(false)
+        },
+        300
+      )
+  }, [displayMessages.length, hasMore, isLoadingMore, visibleMessages, setTimeoutTimer])
 
   useShortcut('copy_last_message', () => {
     const lastMessage = last(messages)
@@ -357,28 +359,25 @@ const computeDisplayMessages = (messages: Message[], startIndex: number, display
     }
     return result
   }
-  const userIdSet = new Set() // 用户消息 id 集合
-  const assistantIdSet = new Set() // 助手消息 askId 集合
+  const messageGroupSet = new Set<string>()
   const displayMessages: Message[] = []
 
   // 处理单条消息的函数
   const processMessage = (message: Message) => {
     if (!message) return
 
-    const idSet = message.role === 'user' ? userIdSet : assistantIdSet
-    const messageId = message.role === 'user' ? message.id : message.askId
+    const messageGroupKey = getMessageGroupKey(message)
 
-    if (!idSet.has(messageId)) {
-      idSet.add(messageId)
+    if (!messageGroupSet.has(messageGroupKey)) {
+      messageGroupSet.add(messageGroupKey)
       displayMessages.push(message)
       return
     }
-    // 如果是相同 askId 的助手消息，也要显示
     displayMessages.push(message)
   }
 
   // 直接在原数组上倒序遍历，跳过前 startIndex 个，避免全量拷贝和 reverse()
-  for (let i = messages.length - 1 - startIndex; i >= 0 && userIdSet.size + assistantIdSet.size < displayCount; i--) {
+  for (let i = messages.length - 1 - startIndex; i >= 0 && messageGroupSet.size < displayCount; i--) {
     processMessage(messages[i])
   }
 

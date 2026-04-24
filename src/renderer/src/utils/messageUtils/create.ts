@@ -341,14 +341,24 @@ export function createMessage(
 
   blocks = blocks.map(String)
 
+  const finalMessageId = id ?? messageId
+  const branchDefaults =
+    role === 'user'
+      ? {
+          branchRootId: finalMessageId,
+          foldSelected: true
+        }
+      : {}
+
   return {
-    id: id ?? messageId,
+    id: finalMessageId,
     role,
     topicId,
     assistantId,
     createdAt: now,
     status: role === 'user' ? UserMessageStatus.SUCCESS : AssistantMessageStatus.PENDING,
     blocks,
+    ...branchDefaults,
     ...restOverrides
   }
 }
@@ -396,27 +406,15 @@ export function resetMessage(
   updates: Partial<Pick<Message, 'model' | 'modelId' | 'status' | 'blocks'>> = {}
 ): Message {
   return {
-    // Keep immutable core properties
-    id: originalMessage.id,
-    role: originalMessage.role,
-    topicId: originalMessage.topicId,
-    assistantId: originalMessage.assistantId,
-    agentSessionId: originalMessage.agentSessionId,
-    type: originalMessage.type,
-    createdAt: originalMessage.createdAt, // Keep original creation timestamp
-
-    // Apply updates or use existing values
+    ...originalMessage,
     model: updates.model ?? originalMessage.model,
     modelId: updates.modelId ?? originalMessage.modelId,
-    status: updates.status ?? AssistantMessageStatus.PENDING, // Default reset status to 'processing'
-
-    // Reset mutable/volatile properties
-    blocks: updates.blocks ?? [], // Always clear blocks array
+    status: updates.status ?? AssistantMessageStatus.PENDING,
+    blocks: updates.blocks ?? [],
     useful: undefined,
     askId: undefined,
     mentions: undefined,
     enabledMCPs: undefined
-    // NOTE: Add any other fields here that should be reset upon message regeneration
   }
 }
 
@@ -442,30 +440,13 @@ export const resetAssistantMessage = (
 
   // Create the base reset message
   return {
-    // --- Retain Core Identifiers ---
-    id: originalMessage.id, // Keep the same message ID
-    topicId: originalMessage.topicId,
-    askId: originalMessage.askId, // Keep the link to the original user query
-
-    // --- Retain Identity ---
-    role: 'assistant',
-    assistantId: originalMessage.assistantId,
-    agentSessionId: originalMessage.agentSessionId,
-    model: originalMessage.model, // Keep the model information
-    modelId: originalMessage.modelId,
-
-    // --- Reset Response Content & Status ---
-    blocks: [], // <<< CRITICAL: Clear the blocks array
-    mentions: undefined, // Clear any mentions
-    status: AssistantMessageStatus.PENDING, // Default to PENDING
-    metrics: undefined, // Clear performance metrics
-    usage: undefined, // Clear token usage data
-
-    // --- Timestamps ---
-    createdAt: originalMessage.createdAt, // Keep original creation timestamp
-
-    // --- Apply Overrides ---
-    ...updates // Apply any specific updates passed in (e.g., a different status)
+    ...originalMessage,
+    blocks: [],
+    mentions: undefined,
+    status: AssistantMessageStatus.PENDING,
+    metrics: undefined,
+    usage: undefined,
+    ...updates
   }
 }
 

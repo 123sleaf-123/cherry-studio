@@ -35,6 +35,10 @@ const logger = loggerService.withContext('MessagesService')
 
 export {
   filterAfterContextClearMessages,
+  getActiveBranchMessages,
+  getSelectedMessageInGroup,
+  getVisibleMessagesForDisplay,
+  getMessageGroupKey,
   filterEmptyMessages,
   filterErrorOnlyMessagesWithRelated,
   filterMessages,

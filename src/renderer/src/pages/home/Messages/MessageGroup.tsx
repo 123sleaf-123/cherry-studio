@@ -35,7 +35,9 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
   const { isMultiSelectMode } = useChatContext(topic)
   const { setTimeoutTimer } = useTimer()
 
-  const isGrouped = isMultiSelectMode ? false : messageLength > 1 && messages.every((m) => m.role === 'assistant')
+  const isAssistantGroup = isMultiSelectMode ? false : messageLength > 1 && messages.every((m) => m.role === 'assistant')
+  const isUserVersionGroup = isMultiSelectMode ? false : messageLength > 1 && messages.every((m) => m.role === 'user')
+  const isGrouped = isAssistantGroup || isUserVersionGroup
 
   // States
   const [_multiModelMessageStyle, setMultiModelMessageStyle] = useState<MultiModelMessageStyle>(
@@ -45,8 +47,8 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
 
   // 对于单模型消息，采用简单的样式，避免 overflow 影响内部的 sticky 效果
   const multiModelMessageStyle = useMemo(
-    () => (messageLength < 2 ? 'fold' : _multiModelMessageStyle),
-    [_multiModelMessageStyle, messageLength]
+    () => (isUserVersionGroup || messageLength < 2 ? 'fold' : _multiModelMessageStyle),
+    [_multiModelMessageStyle, isUserVersionGroup, messageLength]
   )
 
   const isGrid = multiModelMessageStyle === 'grid'
@@ -60,10 +62,17 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
     return messages[0]?.id
   }, [messages])
 
+  useEffect(() => {
+    const nextSelectedIndex = messages.findIndex((message) => message.id === selectedMessageId)
+    setSelectedIndex(nextSelectedIndex === -1 ? 0 : nextSelectedIndex)
+  }, [messages, selectedMessageId])
+
   const setSelectedMessage = useCallback(
     (message: Message) => {
       // 前一个
-      void editMessage(selectedMessageId, { foldSelected: false })
+      if (selectedMessageId) {
+        void editMessage(selectedMessageId, { foldSelected: false })
+      }
       // 当前选中的消息
       void editMessage(message.id, { foldSelected: true })
 
@@ -79,6 +88,23 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
       )
     },
     [editMessage, selectedMessageId, setTimeoutTimer]
+  )
+
+  const selectByOffset = useCallback(
+    (offset: number) => {
+      if (messageLength <= 1) {
+        return
+      }
+
+      const currentIndex = messages.findIndex((message) => message.id === selectedMessageId)
+      const safeCurrentIndex = currentIndex === -1 ? 0 : currentIndex
+      const nextIndex = (safeCurrentIndex + offset + messageLength) % messageLength
+      const nextMessage = messages[nextIndex]
+      if (nextMessage) {
+        setSelectedMessage(nextMessage)
+      }
+    },
+    [messageLength, messages, selectedMessageId, setSelectedMessage]
   )
   // 添加对流程图节点点击事件的监听
   useEffect(() => {
@@ -196,7 +222,7 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
 
   const renderMessage = useCallback(
     (message: Message & { index: number }) => {
-      const isGridGroupMessage = isGrid && message.role === 'assistant' && isGrouped
+      const isGridGroupMessage = isGrid && message.role === 'assistant' && isAssistantGroup
       const messageProps = {
         isGrouped,
         message,
@@ -208,12 +234,12 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
         <MessageWrapper
           id={`message-${message.id}`}
           key={message.id}
-          className={classNames([
-            {
-              [multiModelMessageStyle]: message.role === 'assistant' && messages.length > 1,
-              selected: message.id === selectedMessageId
-            }
-          ])}>
+              className={classNames([
+                {
+                  [multiModelMessageStyle]: messages.length > 1,
+                  selected: message.id === selectedMessageId
+                }
+              ])}>
           <MessageItem
             onUpdateUseful={onUpdateUseful}
             isGroupContextMessage={isGrouped && message.id === groupContextMessageId}
@@ -232,7 +258,7 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
                 className={classNames([
                   'in-popover',
                   {
-                    [multiModelMessageStyle]: message.role === 'assistant' && messages.length > 1,
+                    [multiModelMessageStyle]: messages.length > 1,
                     selected: message.id === selectedMessageId
                   }
                 ])}>
@@ -253,7 +279,7 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
     },
     [
       isGrid,
-      isGrouped,
+      isAssistantGroup,
       topic,
       multiModelMessageStyle,
       messages,
@@ -269,13 +295,26 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
       <GroupContainer
         id={messages[0].askId ? `message-group-${messages[0].askId}` : undefined}
         className={classNames([multiModelMessageStyle, { 'multi-select-mode': isMultiSelectMode }])}>
+        {isGrouped && (
+          <VersionNavigator>
+            <VersionButton type="button" onClick={() => selectByOffset(-1)} disabled={messageLength <= 1}>
+              {'<'}
+            </VersionButton>
+            <VersionCounter>
+              {selectedIndex + 1}/{messageLength}
+            </VersionCounter>
+            <VersionButton type="button" onClick={() => selectByOffset(1)} disabled={messageLength <= 1}>
+              {'>'}
+            </VersionButton>
+          </VersionNavigator>
+        )}
         <GridContainer
           $count={messageLength}
           $gridColumns={gridColumns}
           className={classNames([multiModelMessageStyle, { 'multi-select-mode': isMultiSelectMode }])}>
           {messages.map(renderMessage)}
         </GridContainer>
-        {isGrouped && (
+        {isAssistantGroup && (
           <MessageGroupMenuBar
             multiModelMessageStyle={multiModelMessageStyle}
             setMultiModelMessageStyle={(style) => {
@@ -307,6 +346,32 @@ const GroupContainer = styled.div`
   &.multi-select-mode {
     padding: 5px 10px;
   }
+`
+
+const VersionNavigator = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 8px;
+  color: var(--color-text-2);
+`
+
+const VersionButton = styled.button`
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+`
+
+const VersionCounter = styled.span`
+  min-width: 36px;
+  text-align: center;
 `
 
 const GridContainer = styled(Scrollbar)<{ $count: number; $gridColumns: number }>`

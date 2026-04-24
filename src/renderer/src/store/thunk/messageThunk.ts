@@ -27,6 +27,7 @@ import { BlockManager } from '@renderer/services/messageStreaming/BlockManager'
 import { createCallbacks } from '@renderer/services/messageStreaming/callbacks'
 import { endSpan } from '@renderer/services/SpanManagerService'
 import { createStreamProcessor, type StreamProcessorCallbacks } from '@renderer/services/StreamProcessingService'
+import { estimateUserPromptUsage } from '@renderer/services/TokenService'
 import store from '@renderer/store'
 import { updateTopicUpdatedAt } from '@renderer/store/assistants'
 import { type ApiServerConfig, type Assistant, type FileMetadata, type Model, type Topic } from '@renderer/types'
@@ -57,6 +58,7 @@ import {
   resetAssistantMessage
 } from '@renderer/utils/messageUtils/create'
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
+import { getActiveBranchMessages } from '@renderer/utils/messageUtils/filters'
 import { getTopicQueue, waitForTopicQueue } from '@renderer/utils/queue'
 import { IpcChannel } from '@shared/IpcChannel'
 import { defaultAppHeaders } from '@shared/utils'
@@ -100,6 +102,19 @@ type AgentSessionContext = {
 
 const agentSessionRenameLocks = new Set<string>()
 const dbFacade = DbService.getInstance()
+
+const syncTopicMessagesToDB = async (topicId: string, getState: () => RootState) => {
+  const finalMessagesToSave = selectMessagesForTopic(getState(), topicId)
+  await db.topics.update(topicId, { messages: finalMessagesToSave })
+}
+
+const cloneMessageBlockForBranch = (block: MessageBlock, messageId: string, now: string): MessageBlock => ({
+  ...block,
+  id: uuid(),
+  messageId,
+  createdAt: now,
+  updatedAt: now
+})
 
 const findExistingAgentSessionContext = (
   state: RootState,
@@ -799,7 +814,8 @@ const dispatchMultiModelResponses = async (
       askId: triggeringMessage.id,
       model: mentionedModel,
       modelId: mentionedModel.id,
-      traceId: triggeringMessage.traceId
+      traceId: triggeringMessage.traceId,
+      parentMessageId: triggeringMessage.id
     })
     dispatch(newMessagesActions.addMessage({ topicId, message: assistantMessage }))
     assistantMessageStubs.push(assistantMessage)
@@ -859,23 +875,24 @@ const fetchAndProcessAssistantResponseImpl = async (
     })
 
     const allMessagesForTopic = selectMessagesForTopic(getState(), topicId)
+    const activeBranchMessages = getActiveBranchMessages(allMessagesForTopic)
 
     let messagesForContext: Message[] = []
     const userMessageId = assistantMessage.askId
-    const userMessageIndex = allMessagesForTopic.findIndex((m) => m?.id === userMessageId)
+    const userMessageIndex = activeBranchMessages.findIndex((m) => m?.id === userMessageId)
 
     if (userMessageIndex === -1) {
       logger.error(
         `[fetchAndProcessAssistantResponseImpl] Triggering user message ${userMessageId} (askId of ${assistantMsgId}) not found. Falling back.`
       )
-      const assistantMessageIndexFallback = allMessagesForTopic.findIndex((m) => m?.id === assistantMsgId)
+      const assistantMessageIndexFallback = activeBranchMessages.findIndex((m) => m?.id === assistantMsgId)
       messagesForContext = (
         assistantMessageIndexFallback !== -1
-          ? allMessagesForTopic.slice(0, assistantMessageIndexFallback)
-          : allMessagesForTopic
+          ? activeBranchMessages.slice(0, assistantMessageIndexFallback)
+          : activeBranchMessages
       ).filter((m) => m && !m.status?.includes('ing'))
     } else {
-      const contextSlice = allMessagesForTopic.slice(0, userMessageIndex + 1)
+      const contextSlice = activeBranchMessages.slice(0, userMessageIndex + 1)
       messagesForContext = contextSlice.filter((m) => m && !m.status?.includes('ing'))
     }
 
@@ -994,6 +1011,20 @@ export const sendMessage =
       if (activeAgentSession?.agentSessionId && !userMessage.agentSessionId) {
         userMessage.agentSessionId = activeAgentSession.agentSessionId
       }
+      if (!userMessage.branchRootId) {
+        userMessage.branchRootId = userMessage.id
+      }
+      if (userMessage.foldSelected === undefined) {
+        userMessage.foldSelected = true
+      }
+      if (!userMessage.parentMessageId) {
+        const currentMessages = selectMessagesForTopic(getState(), topicId)
+        const activeBranchMessages = getActiveBranchMessages(currentMessages)
+        const parentMessage = activeBranchMessages[activeBranchMessages.length - 1]
+        if (parentMessage) {
+          userMessage.parentMessageId = parentMessage.id
+        }
+      }
 
       await saveMessageAndBlocksToDB(topicId, userMessage, userMessageBlocks)
       dispatch(newMessagesActions.addMessage({ topicId, message: userMessage }))
@@ -1008,7 +1039,8 @@ export const sendMessage =
         const assistantMessage = createAssistantMessage(assistant.id, topicId, {
           askId: userMessage.id,
           model: assistant.model,
-          traceId: userMessage.traceId
+          traceId: userMessage.traceId,
+          parentMessageId: userMessage.id
         })
         if (activeAgentSession.agentSessionId && !assistantMessage.agentSessionId) {
           assistantMessage.agentSessionId = activeAgentSession.agentSessionId
@@ -1034,7 +1066,8 @@ export const sendMessage =
           const assistantMessage = createAssistantMessage(assistant.id, topicId, {
             askId: userMessage.id,
             model: assistant.model,
-            traceId: userMessage.traceId
+            traceId: userMessage.traceId,
+            parentMessageId: userMessage.id
           })
           await saveMessageAndBlocksToDB(topicId, assistantMessage, [])
           dispatch(
@@ -1234,7 +1267,8 @@ export const resendMessageThunk =
 
         const assistantMessage = createAssistantMessage(assistant.id, topicId, {
           askId: userMessageToResend.id,
-          model: assistant.model
+          model: assistant.model,
+          parentMessageId: userMessageToResend.id
         })
         assistantMessage.traceId = userMessageToResend.traceId
         resetDataList.push(assistantMessage)
@@ -1282,7 +1316,8 @@ export const resendMessageThunk =
         const assistantMessage = createAssistantMessage(assistant.id, topicId, {
           askId: userMessageToResend.id,
           model: model,
-          modelId: model.id
+          modelId: model.id,
+          parentMessageId: userMessageToResend.id
         })
         resetDataList.push(assistantMessage)
         dispatch(newMessagesActions.addMessage({ topicId, message: assistantMessage }))
@@ -1320,13 +1355,72 @@ export const resendMessageThunk =
 
 /**
  * Thunk to resend a user message after its content has been edited.
- * Updates the user message's text block and then triggers the regeneration
- * of its associated assistant responses using resendMessageThunk.
+ * Creates a branched user message version and triggers regeneration for the new branch.
  */
 export const resendUserMessageWithEditThunk =
-  (topicId: Topic['id'], originalMessage: Message, assistant: Assistant) => async (dispatch: AppDispatch) => {
-    // Trigger the regeneration logic for associated assistant messages
-    void dispatch(resendMessageThunk(topicId, originalMessage, assistant))
+  (topicId: Topic['id'], originalMessage: Message, editedBlocks: MessageBlock[], assistant: Assistant) =>
+  async (dispatch: AppDispatch, getState: () => RootState) => {
+    const mainTextBlock = editedBlocks.find((block) => block.type === MessageBlockType.MAIN_TEXT)
+    if (!mainTextBlock) {
+      logger.error('[resendUserMessageWithEditThunk] Main text block not found in edited blocks')
+      return
+    }
+
+    try {
+      const state = getState()
+      const topicMessages = selectMessagesForTopic(state, topicId)
+      const branchRootId = originalMessage.branchRootId ?? originalMessage.id
+      const now = new Date().toISOString()
+      const branchedMessageId = uuid()
+      const clonedBlocks = editedBlocks.map((block) => cloneMessageBlockForBranch(block, branchedMessageId, now))
+      const files = clonedBlocks
+        .filter((block): block is FileMessageBlock | ImageMessageBlock => {
+          return block.type === MessageBlockType.FILE || block.type === MessageBlockType.IMAGE
+        })
+        .map((block) => block.file)
+
+      const usage = await estimateUserPromptUsage({ content: mainTextBlock.content, files })
+
+      const siblingMessages = topicMessages.filter(
+        (message) => message.role === 'user' && (message.branchRootId ?? message.id) === branchRootId
+      )
+
+      siblingMessages.forEach((message) => {
+        if (!message.foldSelected) {
+          return
+        }
+        dispatch(
+          newMessagesActions.updateMessage({
+            topicId,
+            messageId: message.id,
+            updates: { foldSelected: false }
+          })
+        )
+      })
+
+      const branchedUserMessage: Message = {
+        ...originalMessage,
+        id: branchedMessageId,
+        blocks: clonedBlocks.map((block) => block.id),
+        branchRootId,
+        branchParentId: originalMessage.id,
+        parentMessageId: originalMessage.parentMessageId,
+        createdAt: now,
+        updatedAt: now,
+        status: UserMessageStatus.SUCCESS,
+        usage,
+        foldSelected: true
+      }
+
+      await saveMessageAndBlocksToDB(topicId, branchedUserMessage, clonedBlocks)
+      dispatch(newMessagesActions.addMessage({ topicId, message: branchedUserMessage }))
+      dispatch(upsertManyBlocks(clonedBlocks))
+      await syncTopicMessagesToDB(topicId, getState)
+
+      void dispatch(resendMessageThunk(topicId, branchedUserMessage, assistant))
+    } catch (error) {
+      logger.error(`[resendUserMessageWithEditThunk] Failed to branch user message ${originalMessage.id}:`, error as Error)
+    }
   }
 
 /**
@@ -1585,7 +1679,8 @@ export const appendAssistantResponseThunk =
         askId: askId, // Crucial: Use the original askId
         model: newModel,
         modelId: newModel.id,
-        traceId: traceId
+        traceId: traceId,
+        parentMessageId: askId
       })
 
       // 3. Update Redux Store

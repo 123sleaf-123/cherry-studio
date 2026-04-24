@@ -11,7 +11,8 @@ import {
   filterEmptyMessages,
   filterErrorOnlyMessagesWithRelated,
   filterUsefulMessages,
-  filterUserRoleStartMessages
+  filterUserRoleStartMessages,
+  getActiveBranchMessages
 } from './MessagesService'
 
 const logger = loggerService.withContext('ConversationService')
@@ -22,7 +23,8 @@ export class ConversationService {
    * This keeps the logic testable and prevents future regressions when the pipeline changes.
    */
   static filterMessagesPipeline(messages: Message[], contextCount: number): Message[] {
-    const messagesAfterContextClear = filterAfterContextClearMessages(messages)
+    const activeBranchMessages = getActiveBranchMessages(messages)
+    const messagesAfterContextClear = filterAfterContextClearMessages(activeBranchMessages)
     const usefulMessages = filterUsefulMessages(messagesAfterContextClear)
     // Run the error-only filter before trimming trailing assistant responses so the pair is removed together.
     const withoutErrorOnlyPairs = filterErrorOnlyMessagesWithRelated(usefulMessages)

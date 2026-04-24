@@ -196,6 +196,9 @@ export type Message = {
   type?: 'clear'
   useful?: boolean
   askId?: string // 关联的问题消息ID
+  parentMessageId?: string
+  branchRootId?: string
+  branchParentId?: string
   mentions?: Model[]
   /**
    * @deprecated

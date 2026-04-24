@@ -11,6 +11,184 @@ import { isEmpty } from 'lodash'
 
 // const logger = loggerService.withContext('Utils.filter')
 
+const ROOT_PARENT_KEY = '__root__'
+
+type ResolvedMessageMeta = {
+  branchRootId?: string
+  parentMessageId?: string
+}
+
+const getParentKey = (parentMessageId?: string) => parentMessageId ?? ROOT_PARENT_KEY
+
+const resolveMessageMeta = (messages: Message[]) => {
+  const resolved = new Map<string, ResolvedMessageMeta>()
+  let previousMessageId: string | undefined
+
+  messages.forEach((message) => {
+    const parentMessageId = message.parentMessageId ?? (message.role === 'assistant' ? message.askId : previousMessageId)
+    const branchRootId = message.role === 'user' ? message.branchRootId ?? message.id : undefined
+
+    resolved.set(message.id, {
+      branchRootId,
+      parentMessageId
+    })
+
+    previousMessageId = message.id
+  })
+
+  return resolved
+}
+
+export const getSelectedMessageInGroup = (messages: Message[]): Message | undefined => {
+  if (messages.length === 0) {
+    return undefined
+  }
+
+  const explicitSelection = messages.find((message) => message.foldSelected)
+  if (explicitSelection) {
+    return explicitSelection
+  }
+
+  if (messages[0].role === 'assistant') {
+    return messages.find((message) => message.useful) ?? messages[0]
+  }
+
+  return messages[messages.length - 1]
+}
+
+export const getMessageGroupKey = (message: Message): string => {
+  if (message.role === 'assistant' && message.askId) {
+    return `assistant:${message.askId}`
+  }
+
+  if (message.role === 'assistant') {
+    return `assistant:${message.id}`
+  }
+
+  return `user:${message.branchRootId ?? message.id}`
+}
+
+const collectBranchVisibility = (messages: Message[]) => {
+  const resolved = resolveMessageMeta(messages)
+  const userGroups = new Map<
+    string,
+    {
+      messages: Message[]
+      parentMessageId?: string
+    }
+  >()
+  const userGroupKeysByParent = new Map<string, string[]>()
+  const assistantGroups = new Map<string, Message[]>()
+
+  messages.forEach((message) => {
+    const meta = resolved.get(message.id)
+
+    if (message.role === 'assistant' && message.askId) {
+      if (!assistantGroups.has(message.askId)) {
+        assistantGroups.set(message.askId, [])
+      }
+      assistantGroups.get(message.askId)?.push(message)
+      return
+    }
+
+    if (message.role !== 'user') {
+      return
+    }
+
+    const branchRootId = meta?.branchRootId ?? message.id
+    const parentKey = getParentKey(meta?.parentMessageId)
+    const groupKey = `${parentKey}:${branchRootId}`
+
+    if (!userGroups.has(groupKey)) {
+      userGroups.set(groupKey, {
+        messages: [],
+        parentMessageId: meta?.parentMessageId
+      })
+      if (!userGroupKeysByParent.has(parentKey)) {
+        userGroupKeysByParent.set(parentKey, [])
+      }
+      userGroupKeysByParent.get(parentKey)?.push(groupKey)
+    }
+
+    userGroups.get(groupKey)?.messages.push(message)
+  })
+
+  const activeMessageIds = new Set<string>()
+  const activeUserGroupKeys = new Set<string>()
+  const activeAssistantAskIds = new Set<string>()
+  const visitedParents = new Set<string>()
+
+  const walk = (parentMessageId?: string) => {
+    const parentKey = getParentKey(parentMessageId)
+    if (visitedParents.has(parentKey)) {
+      return
+    }
+    visitedParents.add(parentKey)
+
+    const groupKeys = userGroupKeysByParent.get(parentKey) ?? []
+    groupKeys.forEach((groupKey) => {
+      const group = userGroups.get(groupKey)
+      if (!group) {
+        return
+      }
+
+      const selectedUserMessage = getSelectedMessageInGroup(group.messages)
+      if (!selectedUserMessage) {
+        return
+      }
+
+      activeUserGroupKeys.add(groupKey)
+      activeMessageIds.add(selectedUserMessage.id)
+
+      const assistantMessages = assistantGroups.get(selectedUserMessage.id) ?? []
+      if (assistantMessages.length > 0) {
+        activeAssistantAskIds.add(selectedUserMessage.id)
+        const selectedAssistantMessage = getSelectedMessageInGroup(assistantMessages)
+        if (selectedAssistantMessage) {
+          activeMessageIds.add(selectedAssistantMessage.id)
+          walk(selectedAssistantMessage.id)
+        }
+        return
+      }
+
+      walk(selectedUserMessage.id)
+    })
+  }
+
+  walk(undefined)
+
+  const visibleMessageIds = new Set(activeMessageIds)
+  activeUserGroupKeys.forEach((groupKey) => {
+    userGroups.get(groupKey)?.messages.forEach((message) => visibleMessageIds.add(message.id))
+  })
+  activeAssistantAskIds.forEach((askId) => {
+    assistantGroups.get(askId)?.forEach((message) => visibleMessageIds.add(message.id))
+  })
+
+  return {
+    activeMessageIds,
+    visibleMessageIds
+  }
+}
+
+export const getActiveBranchMessages = (messages: Message[]): Message[] => {
+  if (messages.length === 0) {
+    return []
+  }
+
+  const { activeMessageIds } = collectBranchVisibility(messages)
+  return messages.filter((message) => activeMessageIds.has(message.id))
+}
+
+export const getVisibleMessagesForDisplay = (messages: Message[]): Message[] => {
+  if (messages.length === 0) {
+    return []
+  }
+
+  const { visibleMessageIds } = collectBranchVisibility(messages)
+  return messages.filter((message) => visibleMessageIds.has(message.id))
+}
+
 /**
  * Filters out messages of type '@' or 'clear' and messages without main text content.
  */
@@ -91,8 +269,7 @@ export function filterEmptyMessages(messages: Message[]): Message[] {
 export function getGroupedMessages(messages: Message[]): { [key: string]: (Message & { index: number })[] } {
   const groups: { [key: string]: (Message & { index: number })[] } = {}
   messages.forEach((message, index) => {
-    // Use askId if available (should be on assistant messages), otherwise group user messages individually
-    const key = message.role === 'assistant' && message.askId ? 'assistant' + message.askId : message.role + message.id
+    const key = getMessageGroupKey(message)
     if (key && !groups[key]) {
       groups[key] = []
     }
@@ -223,9 +400,10 @@ export function filterErrorOnlyMessagesWithRelated(messages: Message[]): Message
  * 5. Excludes empty messages
  */
 export function filterContextMessages(messages: Message[], contextCount: number): Message[] {
+  const activeMessages = getActiveBranchMessages(messages)
   // NOTE: 和 fetchCompletions 中过滤消息的逻辑相同。
   // 按理说 fetchCompletions 也可以复用这个函数，不过 fetchCompletions 不敢随便乱改，后面再考虑重构吧
-  const afterContextClearMsgs = filterAfterContextClearMessages(messages)
+  const afterContextClearMsgs = filterAfterContextClearMessages(activeMessages)
   const usefulMsgs = filterUsefulMessages(afterContextClearMsgs)
   const adjacentRemovedMsgs = filterAdjacentUserMessaegs(usefulMsgs)
   const filteredMessages = filterUserRoleStartMessages(

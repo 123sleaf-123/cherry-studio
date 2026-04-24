@@ -11,7 +11,10 @@ import {
   filterErrorOnlyMessagesWithRelated,
   filterLastAssistantMessage,
   filterUsefulMessages,
-  filterUserRoleStartMessages
+  filterUserRoleStartMessages,
+  getActiveBranchMessages,
+  getGroupedMessages,
+  getVisibleMessagesForDisplay
 } from '../filters'
 
 // Create a mock store
@@ -528,6 +531,77 @@ describe('Message Filter Utils', () => {
       // Should have user1, assistant1, and user3 (user2 and errorAssistant filtered out)
       expect(result).toHaveLength(3)
       expect(result.map((m) => m.id)).toEqual([user1Id, assistant1Id, user3Id])
+    })
+  })
+
+  describe('inline message branching', () => {
+    it('keeps only the selected branch path plus the visible sibling versions', () => {
+      const userOriginal = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1',
+        branchRootId: 'user-1',
+        foldSelected: false
+      })
+      const assistantOriginal = createMessage('assistant', 'topic-1', 'assistant-1', {
+        id: 'assistant-1',
+        askId: 'user-1',
+        parentMessageId: 'user-1'
+      })
+      const oldFollowUp = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-2',
+        parentMessageId: 'assistant-1'
+      })
+      const userBranch = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1-branch',
+        branchRootId: 'user-1',
+        branchParentId: 'user-1',
+        foldSelected: true
+      })
+      const assistantBranch = createMessage('assistant', 'topic-1', 'assistant-1', {
+        id: 'assistant-branch',
+        askId: 'user-1-branch',
+        parentMessageId: 'user-1-branch'
+      })
+
+      const visibleMessages = getVisibleMessagesForDisplay([
+        userOriginal,
+        assistantOriginal,
+        oldFollowUp,
+        userBranch,
+        assistantBranch
+      ])
+
+      expect(visibleMessages.map((message) => message.id)).toEqual(['user-1', 'user-1-branch', 'assistant-branch'])
+    })
+
+    it('builds grouped user versions while keeping only the active branch for model context', () => {
+      const userOriginal = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1',
+        branchRootId: 'user-1',
+        foldSelected: false
+      })
+      const assistantOriginal = createMessage('assistant', 'topic-1', 'assistant-1', {
+        id: 'assistant-1',
+        askId: 'user-1',
+        parentMessageId: 'user-1'
+      })
+      const userBranch = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1-branch',
+        branchRootId: 'user-1',
+        branchParentId: 'user-1',
+        foldSelected: true
+      })
+      const assistantBranch = createMessage('assistant', 'topic-1', 'assistant-1', {
+        id: 'assistant-branch',
+        askId: 'user-1-branch',
+        parentMessageId: 'user-1-branch'
+      })
+
+      const visibleMessages = getVisibleMessagesForDisplay([userOriginal, assistantOriginal, userBranch, assistantBranch])
+      const groupedMessages = getGroupedMessages(visibleMessages)
+      const activeMessages = getActiveBranchMessages([userOriginal, assistantOriginal, userBranch, assistantBranch])
+
+      expect(groupedMessages['user:user-1']?.map((message) => message.id)).toEqual(['user-1', 'user-1-branch'])
+      expect(activeMessages.map((message) => message.id)).toEqual(['user-1-branch', 'assistant-branch'])
     })
   })
 })

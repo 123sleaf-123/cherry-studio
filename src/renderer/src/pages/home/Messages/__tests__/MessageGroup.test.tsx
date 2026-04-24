@@ -109,6 +109,16 @@ const createMessage = (id: string, index: number) =>
     index
   }) as unknown as Message & { index: number }
 
+const createUserVersion = (id: string, index: number, foldSelected: boolean) =>
+  ({
+    id,
+    role: 'user',
+    blocks: [],
+    branchRootId: 'user-1',
+    foldSelected,
+    index
+  }) as unknown as Message & { index: number }
+
 describe('MessageGroup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -129,5 +139,14 @@ describe('MessageGroup', () => {
 
     const horizontalGroup = outerWrapper!.parentElement as HTMLElement
     expect(getComputedStyle(horizontalGroup).overflowX).toBe('auto')
+  })
+
+  it('shows a version navigator for grouped user branches', () => {
+    const messages = [createUserVersion('user-1', 0, true), createUserVersion('user-1-branch', 1, false)]
+    const topic = { id: 'topic-1' } as Topic
+
+    render(<MessageGroup messages={messages} topic={topic} />)
+
+    expect(screen.getByText('1/2')).toBeInTheDocument()
   })
 })
