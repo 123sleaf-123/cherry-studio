@@ -19,13 +19,15 @@ type ResolvedMessageMeta = {
 }
 
 const getParentKey = (parentMessageId?: string) => parentMessageId ?? ROOT_PARENT_KEY
+const getFallbackParentMessageId = (message: Message, previousMessageId?: string) =>
+  message.role === 'assistant' ? message.askId : previousMessageId
 
 const resolveMessageMeta = (messages: Message[]) => {
   const resolved = new Map<string, ResolvedMessageMeta>()
   let previousMessageId: string | undefined
 
   messages.forEach((message) => {
-    const parentMessageId = message.parentMessageId ?? (message.role === 'assistant' ? message.askId : previousMessageId)
+    const parentMessageId = message.parentMessageId ?? getFallbackParentMessageId(message, previousMessageId)
     const branchRootId = message.role === 'user' ? message.branchRootId ?? message.id : undefined
 
     resolved.set(message.id, {

@@ -46,9 +46,10 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
   const [selectedIndex, setSelectedIndex] = useState(messageLength - 1)
 
   // 对于单模型消息，采用简单的样式，避免 overflow 影响内部的 sticky 效果
+  const shouldUseFoldStyle = isUserVersionGroup || messageLength < 2
   const multiModelMessageStyle = useMemo(
-    () => (isUserVersionGroup || messageLength < 2 ? 'fold' : _multiModelMessageStyle),
-    [_multiModelMessageStyle, isUserVersionGroup, messageLength]
+    () => (shouldUseFoldStyle ? 'fold' : _multiModelMessageStyle),
+    [_multiModelMessageStyle, shouldUseFoldStyle]
   )
 
   const isGrid = multiModelMessageStyle === 'grid'
@@ -297,13 +298,21 @@ const MessageGroup = ({ messages, topic, registerMessageElement }: Props) => {
         className={classNames([multiModelMessageStyle, { 'multi-select-mode': isMultiSelectMode }])}>
         {isGrouped && (
           <VersionNavigator>
-            <VersionButton type="button" onClick={() => selectByOffset(-1)} disabled={messageLength <= 1}>
+            <VersionButton
+              aria-label="Previous version"
+              type="button"
+              onClick={() => selectByOffset(-1)}
+              disabled={messageLength <= 1}>
               {'<'}
             </VersionButton>
             <VersionCounter>
               {selectedIndex + 1}/{messageLength}
             </VersionCounter>
-            <VersionButton type="button" onClick={() => selectByOffset(1)} disabled={messageLength <= 1}>
+            <VersionButton
+              aria-label="Next version"
+              type="button"
+              onClick={() => selectByOffset(1)}
+              disabled={messageLength <= 1}>
               {'>'}
             </VersionButton>
           </VersionNavigator>

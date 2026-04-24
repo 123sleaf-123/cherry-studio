@@ -603,5 +603,28 @@ describe('Message Filter Utils', () => {
       expect(groupedMessages['user:user-1']?.map((message) => message.id)).toEqual(['user-1', 'user-1-branch'])
       expect(activeMessages.map((message) => message.id)).toEqual(['user-1-branch', 'assistant-branch'])
     })
+
+    it('falls back to the latest user version when no explicit branch is selected', () => {
+      const userOriginal = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1',
+        branchRootId: 'user-1',
+        foldSelected: false
+      })
+      const userBranch = createMessage('user', 'topic-1', 'assistant-1', {
+        id: 'user-1-branch',
+        branchRootId: 'user-1'
+      })
+
+      const activeMessages = getActiveBranchMessages([userOriginal, userBranch])
+
+      expect(activeMessages.map((message) => message.id)).toEqual(['user-1-branch'])
+    })
+
+    it('groups legacy user messages without explicit branch metadata by message id', () => {
+      const legacyUser = createMessage('user', 'topic-1', 'assistant-1', { id: 'legacy-user' })
+      const groupedMessages = getGroupedMessages([legacyUser])
+
+      expect(groupedMessages['user:legacy-user']?.map((message) => message.id)).toEqual(['legacy-user'])
+    })
   })
 })
